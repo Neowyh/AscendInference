@@ -157,6 +157,31 @@ python scripts/config_manager.py list
 python scripts/config_manager.py use high_accuracy.json
 ```
 
+## 性能评测
+
+项目提供了性能评测功能，用于测量不同推理模式的性能：
+
+### 性能评测脚本
+
+```bash
+# 测试单张图片推理性能
+python scripts/benchmark.py --image test.jpg --model models/yolov8s.om
+
+# 测试批量图片推理性能
+python scripts/benchmark.py --image test.jpg --model models/yolov8s.om --batch --batch-size 5
+
+# 测试特定推理模式
+python scripts/benchmark.py --image test.jpg --model models/yolov8s.om --modes base fast multithread
+```
+
+### 性能评测指标
+
+- **总时间**：推理过程的总耗时
+- **平均时间**：每次推理的平均耗时
+- **最小/最大时间**：推理过程中的最快/最慢耗时
+- **吞吐率**：每秒处理的图片数量
+
+
 ## 性能优化
 
 - **选择合适的推理模式**：根据图片大小和数量选择

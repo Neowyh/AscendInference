@@ -4,6 +4,7 @@ from .yolo_inference_fast import YOLOInferenceFast
 from .yolo_inference_multithread import MultithreadInference
 from .yolo_inference_high_res import HighResInference
 from ..config import Config
+from ..utils.profiler import Profiler
 
 class InferenceAPI:
     """统一推理API接口"""
@@ -49,8 +50,13 @@ class InferenceAPI:
         Returns:
             list: 检测结果
         """
+        profiler = Profiler(enable=True)
+        profiler.start()
         with InferenceAPI.create_inference(inference_type, **kwargs) as inference:
-            return inference.inference(image_path)
+            result = inference.inference(image_path)
+        profiler.stop()
+        profiler.print_stats(f"单张图片推理 ({inference_type})")
+        return result
     
     @staticmethod
     def inference_batch(inference_type, image_paths, **kwargs):
@@ -65,8 +71,12 @@ class InferenceAPI:
         Returns:
             list: 检测结果列表
         """
+        profiler = Profiler(enable=True)
+        profiler.start()
         results = []
         with InferenceAPI.create_inference(inference_type, **kwargs) as inference:
             for image_path in image_paths:
                 results.append(inference.inference(image_path))
+        profiler.stop()
+        profiler.print_stats(f"批量图片推理 ({inference_type})")
         return results
