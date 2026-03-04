@@ -14,7 +14,14 @@ import sys
 import argparse
 import numpy as np
 from PIL import Image
-import cv2
+
+# 检查OpenCV
+HAS_OPENCV = False
+try:
+    import cv2
+    HAS_OPENCV = True
+except ImportError:
+    pass
 
 def generate_test_image(output_path, width, height, color=(255, 255, 255)):
     """
@@ -83,15 +90,6 @@ def main():
     # 生成测试图像
     generate_batch_images(args.output, resolutions)
     print(f"测试图像生成完成，保存在: {args.output}")
-
-
-# 检查OpenCV
-HAS_OPENCV = False
-try:
-    import cv2
-    HAS_OPENCV = True
-except ImportError:
-    pass
 
 
 if __name__ == "__main__":

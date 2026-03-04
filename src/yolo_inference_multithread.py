@@ -19,8 +19,9 @@ import threading
 import queue
 import time
 
-# 导入ACL工具类
-from utils.acl_utils import AclManager, ModelManager, MemoryManager
+# 导入配置和基类
+from config import Config
+from base_inference import BaseInference
 
 # 尝试导入OpenCV
 try:
@@ -29,77 +30,35 @@ try:
 except ImportError:
     HAS_OPENCV = False
 
-# 配置参数
-MODEL_PATH = "yolov5s.om"
 
-# 支持的输入分辨率
-SUPPORTED_RESOLUTIONS = {
-    "640x640": (640, 640),
-    "1k": (1024, 1024),
-    "1k2k": (1024, 2048),
-    "2k": (2048, 2048),
-    "2k4k": (2048, 4096),
-    "4k": (4096, 4096),
-    "4k6k": (4096, 6144),
-    "3k6k": (3072, 6144),
-    "6k": (6144, 6144)
-}
-
-# 默认分辨率
-DEFAULT_RESOLUTION = "640x640"
-INPUT_WIDTH, INPUT_HEIGHT = SUPPORTED_RESOLUTIONS[DEFAULT_RESOLUTION]
-
-# 昇腾310B有4个AI Core
-MAX_AI_CORES = 4
-
-
-class InferenceWorker:
+class InferenceWorker(BaseInference):
     """推理工作线程"""
     
-    def __init__(self, worker_id, device_id, model_path, input_width, input_height):
+    def __init__(self, worker_id, device_id, model_path, resolution):
+        """初始化工作线程
+        
+        Args:
+            worker_id: 工作线程ID
+            device_id: 设备ID
+            model_path: 模型路径
+            resolution: 输入分辨率
+        """
+        super().__init__(model_path, device_id, resolution)
         self.worker_id = worker_id
-        self.device_id = device_id
-        self.model_path = model_path
-        self.input_width = input_width
-        self.input_height = input_height
-        
-        # 设备相关
-        self.acl_manager = AclManager(self.device_id)  # ACL管理器
-        
-        # 模型相关
-        self.model_manager = ModelManager(self.model_path)  # 模型管理器
-        
-        # 内存相关
-        self.memory_manager = MemoryManager()  # 内存管理器
-        self.input_buffer = None
-        self.output_buffer = None
         self.output_host = None
     
     def init(self):
         """初始化 worker"""
         # 初始化ACL
-        if not self.acl_manager.init():
+        if not self.init_acl():
             return False
         
         # 加载模型
-        if not os.path.exists(self.model_path):
+        if not self.load_model():
             return False
         
-        if not self.model_manager.load():
-            return False
-        
-        # 分配内存
-        input_size = self.model_manager.get_input_size()
+        # 预分配主机内存用于输出
         output_size = self.model_manager.get_output_size()
-        
-        self.input_buffer = self.memory_manager.malloc_device(input_size)
-        if not self.input_buffer:
-            return False
-        
-        self.output_buffer = self.memory_manager.malloc_device(output_size)
-        if not self.output_buffer:
-            return False
-        
         self.output_host = self.memory_manager.malloc_host(output_size)
         if not self.output_host:
             return False
@@ -107,7 +66,15 @@ class InferenceWorker:
         return True
     
     def preprocess(self, image_path, backend='pil'):
-        """预处理图像"""
+        """预处理图像
+        
+        Args:
+            image_path: 图像文件路径
+            backend: 图像读取后端
+            
+        Returns:
+            bool: 预处理是否成功
+        """
         # 读取图像
         if backend == 'opencv' and HAS_OPENCV:
             image = cv2.imread(image_path)
@@ -116,9 +83,12 @@ class InferenceWorker:
             image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
             image = cv2.resize(image, (self.input_width, self.input_height))
         else:
-            image = Image.open(image_path)
-            image = image.resize((self.input_width, self.input_height))
-            image = np.array(image)
+            try:
+                image = Image.open(image_path)
+                image = image.resize((self.input_width, self.input_height))
+                image = np.array(image)
+            except Exception:
+                return False
         
         # 处理灰度图像
         if len(image.shape) == 2:
@@ -129,57 +99,50 @@ class InferenceWorker:
         image = np.transpose(image, (2, 0, 1)).flatten()
         
         # 分配临时主机内存
-        input_host, ret = acl.rt.malloc_host(self.input_size)
+        input_size = self.model_manager.get_input_size()
+        input_host, ret = acl.rt.malloc_host(input_size)
         if ret != 0:
             return False
         
         # 复制数据
-        acl.util.vector_to_ptr(image.tobytes(), input_host, self.input_size)
+        acl.util.vector_to_ptr(image.tobytes(), input_host, input_size)
         
         # 复制到设备
-        ret = acl.rt.memcpy(self.input_buffer, self.input_size, input_host, self.input_size, acl.rt.MEMCPY_HOST_TO_DEVICE)
+        ret = acl.rt.memcpy(self.input_buffer, input_size, input_host, input_size, acl.rt.MEMCPY_HOST_TO_DEVICE)
         
         # 释放临时内存
         acl.rt.free_host(input_host)
         
         return ret == 0
     
-    def inference(self):
-        """执行推理"""
-        input_data = np.array([self.input_buffer], dtype=np.uintptr)
-        output_data = np.array([self.output_buffer], dtype=np.uintptr)
-        
-        model_id = self.model_manager.get_model_id()
-        return acl.mdl.execute(model_id, input_data, output_data) == 0
-    
     def get_result(self):
         """获取结果"""
+        if not self.model_loaded or not self.output_host:
+            return None
+        
         output_size = self.model_manager.get_output_size()
         if acl.rt.memcpy(self.output_host, output_size, self.output_buffer, output_size, acl.rt.MEMCPY_DEVICE_TO_HOST) != 0:
             return None
         
         return np.frombuffer(self.output_host, dtype=np.float32)
-    
-    def destroy(self):
-        """销毁资源"""
-        # 释放内存
-        self.memory_manager.free_all()
-        
-        # 卸载模型
-        self.model_manager.unload()
-        
-        # 销毁ACL资源
-        self.acl_manager.destroy()
 
 
 class MultithreadInference:
     """多线程推理管理器"""
     
-    def __init__(self, model_path, num_threads=4, resolution=DEFAULT_RESOLUTION):
-        self.model_path = model_path
-        self.num_threads = min(num_threads, MAX_AI_CORES)
-        self.resolution = resolution
-        self.input_width, self.input_height = SUPPORTED_RESOLUTIONS[resolution]
+    def __init__(self, model_path, num_threads=None, resolution=None):
+        """初始化多线程推理管理器
+        
+        Args:
+            model_path: 模型路径
+            num_threads: 线程数量
+            resolution: 输入分辨率
+        """
+        config = Config.get_instance()
+        self.model_path = model_path or config.model_path
+        self.num_threads = min(num_threads or config.num_threads, Config.MAX_AI_CORES)
+        self.resolution = resolution or config.resolution
+        self.input_width, self.input_height = Config.get_resolution(self.resolution)
         
         self.workers = []
         self.task_queue = queue.Queue()
@@ -191,8 +154,8 @@ class MultithreadInference:
         """初始化工作线程"""
         for i in range(self.num_threads):
             # 分配不同的设备ID或AI核
-            device_id = i % MAX_AI_CORES
-            worker = InferenceWorker(i, device_id, self.model_path, self.input_width, self.input_height)
+            device_id = i % Config.MAX_AI_CORES
+            worker = InferenceWorker(i, device_id, self.model_path, self.resolution)
             if worker.init():
                 self.workers.append(worker)
                 print(f"Worker {i} 初始化成功 (device: {device_id})")
@@ -252,7 +215,7 @@ class MultithreadInference:
         
         return True
     
-    def add_task(self, image_path, backend='pil'):
+    def add_task(self, image_path, backend=Config.DEFAULT_BACKEND):
         """添加推理任务"""
         self.task_queue.put((image_path, backend))
     
@@ -300,11 +263,11 @@ def main():
     
     parser = argparse.ArgumentParser(description='YOLO模型多线程推理')
     parser.add_argument('image_paths', nargs='+', help='图像文件路径列表')
-    parser.add_argument('--model', default=MODEL_PATH, help='OM模型文件路径')
-    parser.add_argument('--resolution', default=DEFAULT_RESOLUTION, choices=SUPPORTED_RESOLUTIONS.keys(),
+    parser.add_argument('--model', default=Config.DEFAULT_MODEL_PATH, help='OM模型文件路径')
+    parser.add_argument('--resolution', default=Config.DEFAULT_RESOLUTION, choices=Config.SUPPORTED_RESOLUTIONS.keys(),
                         help='输入分辨率')
-    parser.add_argument('--threads', type=int, default=4, help='线程数量')
-    parser.add_argument('--backend', default='pil', choices=['pil', 'opencv'],
+    parser.add_argument('--threads', type=int, default=Config.DEFAULT_THREADS, help='线程数量')
+    parser.add_argument('--backend', default=Config.DEFAULT_BACKEND, choices=Config.SUPPORTED_BACKENDS,
                         help='图像读取后端')
     
     args = parser.parse_args()

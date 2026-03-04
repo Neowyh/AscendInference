@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 """
-Environment checker demo for Ascend YOLO inference project
+Ascend YOLO推理项目环境检查工具
 
-This is a self-contained, process-oriented script that checks if the target device
-meets the requirements for running the Ascend YOLO inference project. It includes
-comprehensive error handling to identify potential issues in the test environment.
+这是一个独立的、面向过程的脚本，用于检查目标设备是否满足运行Ascend YOLO推理项目的要求。
+它包含全面的错误处理，用于识别测试环境中可能存在的问题。
 """
 
 import os
@@ -12,62 +11,62 @@ import sys
 import subprocess
 import importlib
 
-# Global variables
-REQUIRED_LIBRARIES = ['numpy']
-OPTIONAL_LIBRARIES = ['cv2']
+# 全局变量
+REQUIRED_LIBRARIES = ['numpy']  # 必需的库
+OPTIONAL_LIBRARIES = ['cv2']    # 可选的库
 ASCEND_REQUIREMENTS = {
-    'ascendcl': 'ACL library',
-    'atc': 'Model conversion tool',
-    'amct': 'Model quantization tool'
+    'ascendcl': 'ACL库',
+    'atc': '模型转换工具',
+    'amct': '模型量化工具'
 }
 
 def check_python_version():
-    """Check if Python version is compatible"""
-    print("=== Checking Python version ===")
+    """检查Python版本是否兼容"""
+    print("=== 检查Python版本 ===")
     try:
         version = sys.version_info
-        print(f"Python version: {version.major}.{version.minor}.{version.micro}")
+        print(f"Python版本: {version.major}.{version.minor}.{version.micro}")
         if version.major >= 3 and version.minor >= 6:
-            print("✓ Python version is compatible")
+            print("✓ Python版本兼容")
             return True
         else:
-            print("✗ Python version is incompatible. Requires Python 3.6 or higher")
+            print("✗ Python版本不兼容。需要Python 3.6或更高版本")
             return False
     except Exception as e:
-        print(f"✗ Error checking Python version: {e}")
+        print(f"✗ 检查Python版本时出错: {e}")
         return False
 
 def check_libraries():
-    """Check if required libraries are installed"""
-    print("\n=== Checking required libraries ===")
+    """检查必需的库是否已安装"""
+    print("\n=== 检查必需库 ===")
     all_installed = True
     
     for lib in REQUIRED_LIBRARIES:
         try:
             importlib.import_module(lib)
-            print(f"✓ {lib} is installed")
+            print(f"✓ {lib} 已安装")
         except ImportError:
-            print(f"✗ {lib} is not installed")
+            print(f"✗ {lib} 未安装")
             all_installed = False
     
-    print("\n=== Checking optional libraries ===")
+    print("\n=== 检查可选库 ===")
     for lib in OPTIONAL_LIBRARIES:
         try:
             importlib.import_module(lib)
-            print(f"✓ {lib} is installed")
+            print(f"✓ {lib} 已安装")
         except ImportError:
-            print(f"⚠ {lib} is not installed (optional)")
+            print(f"⚠ {lib} 未安装 (可选)")
     
     return all_installed
 
 def check_ascend_components():
-    """Check if Ascend components are available"""
-    print("\n=== Checking Ascend components ===")
+    """检查Ascend组件是否可用"""
+    print("\n=== 检查Ascend组件 ===")
     all_available = True
     
     for component, description in ASCEND_REQUIREMENTS.items():
         try:
-            # Try to run the component to check if it's available
+            # 尝试运行组件以检查是否可用
             result = subprocess.run(
                 [component, '--version'],
                 capture_output=True,
@@ -75,22 +74,22 @@ def check_ascend_components():
                 timeout=5
             )
             if result.returncode == 0:
-                print(f"✓ {description} is available")
+                print(f"✓ {description} 可用")
             else:
-                print(f"✗ {description} is not available")
+                print(f"✗ {description} 不可用")
                 all_available = False
         except FileNotFoundError:
-            print(f"✗ {description} is not found in PATH")
+            print(f"✗ {description} 未在PATH中找到")
             all_available = False
         except Exception as e:
-            print(f"⚠ Error checking {description}: {e}")
+            print(f"⚠ 检查{description}时出错: {e}")
             all_available = False
     
     return all_available
 
 def check_environment_variables():
-    """Check if required environment variables are set"""
-    print("\n=== Checking environment variables ===")
+    """检查必需的环境变量是否已设置"""
+    print("\n=== 检查环境变量 ===")
     required_vars = [
         'ASCEND_HOME',
         'ASCEND_VERSION',
@@ -100,92 +99,91 @@ def check_environment_variables():
     all_set = True
     for var in required_vars:
         if var in os.environ:
-            print(f"✓ {var} is set: {os.environ[var]}")
+            print(f"✓ {var} 已设置: {os.environ[var]}")
         else:
-            print(f"⚠ {var} is not set")
+            print(f"⚠ {var} 未设置")
             all_set = False
     
     return all_set
 
 def check_device_access():
-    """Check if Ascend device is accessible"""
-    print("\n=== Checking Ascend device access ===")
+    """检查Ascend设备是否可访问"""
+    print("\n=== 检查Ascend设备访问 ===")
     try:
-        # Try to import ACL and check device
+        # 尝试导入ACL并检查设备
         sys.path.append(os.path.join(os.environ.get('ASCEND_HOME', ''), 'ascend-toolkit', 'latest', 'lib64'))
         from acl import acl
         
-        # Initialize ACL
+        # 初始化ACL
         ret = acl.init()
         if ret == 0:
-            print("✓ ACL initialized successfully")
+            print("✓ ACL初始化成功")
             
-            # Check device count
+            # 检查设备数量
             device_count = acl.get_device_count()
-            print(f"✓ Found {device_count} Ascend device(s)")
+            print(f"✓ 发现 {device_count} 个Ascend设备")
             
             if device_count > 0:
-                # Try to open device 0
+                # 尝试打开设备0
                 ret = acl.rt.set_device(0)
                 if ret == 0:
-                    print("✓ Device 0 opened successfully")
+                    print("✓ 设备0打开成功")
                     
-                    # Create context
+                    # 创建上下文
                     context, ret = acl.rt.create_context(0)
                     if ret == 0:
-                        print("✓ Context created successfully")
+                        print("✓ 上下文创建成功")
                         acl.rt.destroy_context(context)
                     else:
-                        print(f"✗ Failed to create context: {ret}")
+                        print(f"✗ 创建上下文失败: {ret}")
                     
                     acl.rt.reset_device(0)
                 else:
-                    print(f"✗ Failed to open device 0: {ret}")
+                    print(f"✗ 打开设备0失败: {ret}")
             
             acl.finalize()
             return True
         else:
-            print(f"✗ Failed to initialize ACL: {ret}")
+            print(f"✗ ACL初始化失败: {ret}")
             return False
     except ImportError:
-        print("✗ ACL library not found")
+        print("✗ ACL库未找到")
         return False
     except Exception as e:
-        print(f"✗ Error checking device access: {e}")
+        print(f"✗ 检查设备访问时出错: {e}")
         return False
 
 def main():
-    """Main function to run all checks"""
-    print("Ascend YOLO Inference Environment Checker")
-    print("========================================")
-    print("This script checks if your environment meets the requirements for running")
-    print("the Ascend YOLO inference project.")
+    """主函数，运行所有检查"""
+    print("Ascend YOLO推理环境检查工具")
+    print("==============================")
+    print("此脚本检查您的环境是否满足运行Ascend YOLO推理项目的要求。")
     print()
     
-    # Run all checks
+    # 运行所有检查
     checks = [
-        ('Python version', check_python_version),
-        ('Required libraries', check_libraries),
-        ('Ascend components', check_ascend_components),
-        ('Environment variables', check_environment_variables),
-        ('Device access', check_device_access)
+        ('Python版本', check_python_version),
+        ('必需库', check_libraries),
+        ('Ascend组件', check_ascend_components),
+        ('环境变量', check_environment_variables),
+        ('设备访问', check_device_access)
     ]
     
     results = []
     for check_name, check_func in checks:
         results.append(check_func())
     
-    # Summary
-    print("\n=== Summary ===")
-    print(f"Total checks: {len(checks)}")
-    print(f"Passed: {sum(results)}")
-    print(f"Failed: {len(checks) - sum(results)}")
+    # 总结
+    print("\n=== 检查结果总结 ===")
+    print(f"总检查项: {len(checks)}")
+    print(f"通过: {sum(results)}")
+    print(f"失败: {len(checks) - sum(results)}")
     
     if all(results):
-        print("\n🎉 All checks passed! Your environment is ready for Ascend YOLO inference.")
+        print("\n🎉 所有检查通过! 您的环境已准备好运行Ascend YOLO推理。")
         return 0
     else:
-        print("\n❌ Some checks failed. Please fix the issues before running the project.")
+        print("\n❌ 部分检查失败。请在运行项目前修复这些问题。")
         return 1
 
 if __name__ == "__main__":

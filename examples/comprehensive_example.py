@@ -3,7 +3,7 @@ import os
 import cv2
 import numpy as np
 
-# Add the project root to Python path
+# 添加项目根目录到Python路径
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from utils.acl_utils import AclManager
@@ -14,108 +14,108 @@ from src.yolo_inference_multithread import YoloInferenceMultithread
 from src.yolo_inference_high_res import YoloInferenceHighRes
 
 def test_basic_inference():
-    print("=== Testing Basic Inference ===")
+    print("=== 测试基础推理 ===")
     try:
-        # Initialize ACL
+        # 初始化ACL
         acl_manager = AclManager()
         acl_manager.init()
         
-        # Test basic YOLO inference
+        # 测试基础YOLO推理
         yolo = YoloInference("./models/yolov8s.om", acl_manager)
         
-        # Generate test image
+        # 生成测试图像
         generator = DataGenerator()
         test_image = generator.generate_test_image()
         
-        # Run inference
+        # 运行推理
         results = yolo.infer(test_image)
-        print(f"Basic inference completed. Detected {len(results)} objects")
+        print(f"基础推理完成。检测到 {len(results)} 个目标")
         
-        # Cleanup
+        # 清理资源
         yolo.destroy()
         acl_manager.destroy()
         return True
     except Exception as e:
-        print(f"Error in basic inference: {e}")
+        print(f"基础推理出错: {e}")
         return False
 
 def test_multithread_inference():
-    print("\n=== Testing Multi-threaded Inference ===")
+    print("\n=== 测试多线程推理 ===")
     try:
-        # Initialize ACL
+        # 初始化ACL
         acl_manager = AclManager()
         acl_manager.init()
         
-        # Test multi-threaded YOLO inference
+        # 测试多线程YOLO推理
         yolo = YoloInferenceMultithread("./models/yolov8s.om", acl_manager)
         
-        # Generate test images
+        # 生成测试图像
         generator = DataGenerator()
         test_images = [generator.generate_test_image() for _ in range(4)]
         
-        # Run inference
+        # 运行推理
         all_results = yolo.batch_infer(test_images)
-        print(f"Multi-threaded inference completed. Processed {len(all_results)} images")
+        print(f"多线程推理完成。处理了 {len(all_results)} 张图像")
         
-        # Cleanup
+        # 清理资源
         yolo.destroy()
         acl_manager.destroy()
         return True
     except Exception as e:
-        print(f"Error in multi-threaded inference: {e}")
+        print(f"多线程推理出错: {e}")
         return False
 
 def test_high_res_inference():
-    print("\n=== Testing High-resolution Inference ===")
+    print("\n=== 测试高分辨率推理 ===")
     try:
-        # Initialize ACL
+        # 初始化ACL
         acl_manager = AclManager()
         acl_manager.init()
         
-        # Test high-resolution YOLO inference
+        # 测试高分辨率YOLO推理
         yolo = YoloInferenceHighRes("./models/yolov8s.om", acl_manager)
         
-        # Generate high-resolution test image
+        # 生成高分辨率测试图像
         generator = DataGenerator()
         high_res_image = generator.generate_test_image(width=2048, height=1536)
         
-        # Run inference
+        # 运行推理
         results = yolo.infer(high_res_image)
-        print(f"High-resolution inference completed. Detected {len(results)} objects")
+        print(f"高分辨率推理完成。检测到 {len(results)} 个目标")
         
-        # Cleanup
+        # 清理资源
         yolo.destroy()
         acl_manager.destroy()
         return True
     except Exception as e:
-        print(f"Error in high-resolution inference: {e}")
+        print(f"高分辨率推理出错: {e}")
         return False
 
 def test_image_enhancement():
-    print("\n=== Testing Image Enhancement ===")
+    print("\n=== 测试图像增强 ===")
     try:
-        # Create enhancer
+        # 创建增强器
         enhancer = ImageEnhancer()
         
-        # Generate test image
+        # 生成测试图像
         generator = DataGenerator()
         test_image = generator.generate_test_image()
         
-        # Test enhancement to different resolutions
+        # 测试增强到不同分辨率
         resolutions = [(640, 640), (1024, 1024), (2048, 2048)]
         for width, height in resolutions:
             enhanced = enhancer.enhance(test_image, width, height)
-            print(f"Enhanced image to {width}x{height} - shape: {enhanced.shape}")
+            print(f"图像增强到 {width}x{height} - 形状: {enhanced.shape}")
         
         return True
     except Exception as e:
-        print(f"Error in image enhancement: {e}")
+        print(f"图像增强出错: {e}")
         return False
 
 def main():
-    print("Running comprehensive example tests...")
+    print("运行综合示例测试...")
     
-    # Run all tests
+    # 运行所有测试
     tests = [
         test_basic_inference,
         test_multithread_inference,
@@ -127,11 +127,11 @@ def main():
     for test in tests:
         results.append(test())
     
-    # Summary
-    print("\n=== Test Summary ===")
-    print(f"Total tests: {len(tests)}")
-    print(f"Passed: {sum(results)}")
-    print(f"Failed: {len(tests) - sum(results)}")
+    # 总结
+    print("\n=== 测试总结 ===")
+    print(f"总测试数: {len(tests)}")
+    print(f"通过: {sum(results)}")
+    print(f"失败: {len(tests) - sum(results)}")
 
 if __name__ == "__main__":
     main()

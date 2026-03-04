@@ -1,241 +1,310 @@
-# AscendCL YOLO模型推理示例
+# AscendInference
 
-本示例展示如何使用AscendCL Python接口执行YOLO模型的OM格式推理。
+基于华为Ascend AI处理器的推理框架，支持YOLO系列模型的高效推理。
 
-## 项目结构
+## 功能特性
+
+- **多模型支持**：支持YOLOv5、v8、v10等模型
+- **多种推理模式**：
+  - 基础推理模式
+  - 快速推理模式
+  - 多线程并行推理
+  - 高分辨率图像推理（支持图像分块处理）
+- **统一API接口**：提供简单易用的统一接口
+- **集中式配置管理**：所有配置参数集中管理
+- **自动资源管理**：使用上下文管理器自动管理资源
+- **详细的日志记录**：提供完善的错误处理和日志记录
+
+## 目录结构
 
 ```
 AscendInference/
-├── data/            # 数据目录（存放测试图像、临时文件等）
-├── src/             # 源代码目录
-│   ├── yolo_inference.py              # 完整工程化版本
-│   ├── yolo_inference_fast.py         # 核心功能版本
-│   ├── yolo_inference_multithread.py  # 多线程性能版本
-│   └── image_enhancer.py              # 图像增强工具
-├── scripts/         # 脚本目录（使用场景示例）
-│   ├── batch_inference.py             # 批量推理脚本
-│   ├── realtime_inference.py          # 实时推理脚本
-│   └── benchmark.py                   # 性能测试脚本
-└── README.md        # 项目说明
+├── config.py          # 集中配置管理
+├── src/
+│   ├── base_inference.py          # 推理基类
+│   ├── yolo_inference.py          # 基础YOLO推理
+│   ├── yolo_inference_fast.py     # 快速YOLO推理
+│   ├── yolo_inference_multithread.py  # 多线程YOLO推理
+│   ├── yolo_inference_high_res.py     # 高分辨率YOLO推理
+│   └── api.py          # 统一API接口
+├── utils/
+│   └── acl_utils.py    # ACL工具类
+├── examples/           # 示例代码
+└── README.md           # 项目说明
 ```
 
-## 环境准备
+## 环境要求
 
-### 1. 安装依赖
+- Python 3.6+
+- Huawei Ascend AI处理器
+- AscendCL (ACL) 库
+- NumPy
+- PIL (Pillow)
+- 可选：OpenCV
 
-```bash
-# 安装必要的Python库
-pip install numpy Pillow
+## 安装
 
-# 如需使用OpenCV后端
-pip install opencv-python
+1. 克隆项目：
+   ```bash
+   git clone <repository_url>
+   cd AscendInference
+   ```
 
-# 确保AscendCL Python包已安装
-# 通常位于Ascend SDK的python/site-packages目录
-```
+2. 安装依赖：
+   ```bash
+   pip install numpy Pillow
+   # 可选
+   pip install opencv-python
+   ```
 
-### 2. 模型转换流程（从PT到OM）
+3. 配置环境变量：
+   ```bash
+   # 设置ACL库路径
+   export ASCEND_HOME=/usr/local/Ascend
+   export LD_LIBRARY_PATH=$ASCEND_HOME/ascend-toolkit/latest/lib64:$LD_LIBRARY_PATH
+   ```
 
-#### 步骤1: 从PT导出ONNX
+## 使用示例
 
-```bash
-# YOLOv5示例
-yolo export model=yolov5s.pt format=onnx
+### 1. 使用统一API接口
 
-# YOLOv8示例
-from ultralytics import YOLO
-model = YOLO('yolov8s.pt')
-model.export(format='onnx')
+```python
+from src.api import InferenceAPI
 
-# YOLOv10示例
-python export.py --weights yolov10s.pt --img-size 640 --batch-size 1
-```
-
-#### 步骤2: 使用AMCT进行量化（可选）
-
-```bash
-# 使用AMCT进行模型量化
-amct_onnx --model=yolov5s.onnx --quantize_mode=calib --calibration_data=calibration_dataset --output_dir=quantized_model
-```
-
-#### 步骤3: 使用ATC转换为OM
-
-```bash
-# 基本转换命令
-atc --model=yolov5s.onnx --framework=5 --output=yolov5s --input_shape="images:1,3,640,640" --soc_version=Ascend310B
-
-# 支持不同分辨率
-atc --model=yolov5s.onnx --framework=5 --output=yolov5s_1k --input_shape="images:1,3,1024,1024" --soc_version=Ascend310B
-```
-
-### 3. 准备测试图像
-
-准备一张测试图像，例如`test.jpg`
-
-## 使用方法
-
-### 基本用法
-
-```bash
-# 运行完整版本（带详细输出）
-python src/yolo_inference.py test.jpg
-
-# 运行快速版本（无输出，更高效率）
-python src/yolo_inference_fast.py test.jpg
-
-# 运行多线程版本（提高吞吐率）
-python src/yolo_inference_multithread.py test1.jpg test2.jpg test3.jpg test4.jpg
-
-# 使用图像增强工具
-python src/image_enhancer.py test.jpg
+# 推理单张图片
+results = InferenceAPI.inference_image(
+    inference_type='base',
+    image_path='test.jpg',
+    model_path='models/yolov8s.om',
+    device_id=0,
+    resolution='640x640'
+)
+print(results)
 
 # 批量推理
-python scripts/batch_inference.py data/test_images
-
-# 实时推理（摄像头）
-python scripts/realtime_inference.py camera
-
-# 性能测试
-python scripts/benchmark.py data/test_images
-
-# 高分辨率图像处理
-python scripts/high_res_inference.py data/high_res_image.jpg
+image_paths = ['test1.jpg', 'test2.jpg', 'test3.jpg']
+results = InferenceAPI.inference_batch(
+    inference_type='multithread',
+    image_paths=image_paths,
+    model_path='models/yolov8s.om',
+    device_id=0,
+    resolution='640x640'
+)
+print(results)
 ```
 
-### 高级用法（指定模型和分辨率）
+### 2. 直接使用推理类
 
-```bash
-# 使用YOLOv8模型，1k分辨率
-python yolo_inference.py test.jpg --model yolov8s.om --resolution 1k
+```python
+from src.yolo_inference import YOLOInference
 
-# 使用YOLOv10模型，4k分辨率
-python yolo_inference.py test.jpg --model yolov10n.om --resolution 4k
-
-# 指定设备ID
-python yolo_inference.py test.jpg --device 1
-
-# 使用OpenCV作为图像读取后端
-python yolo_inference.py test.jpg --backend opencv
+# 使用上下文管理器
+with YOLOInference(
+    model_path='models/yolov8s.om',
+    device_id=0,
+    resolution='640x640'
+) as inference:
+    results = inference.inference('test.jpg')
+    print(results)
 ```
 
-### 支持的分辨率参数
+### 3. 使用多线程推理
 
-- `640x640` (默认)
-- `1k` (1024x1024)
-- `1k2k` (1024x2048)
-- `2k` (2048x2048)
-- `2k4k` (2048x4096)
-- `4k` (4096x4096)
-- `4k6k` (4096x6144)
-- `3k6k` (3072x6144)
-- `6k` (6144x6144)
+```python
+from src.yolo_inference_multithread import MultithreadInference
 
-## 高级工具
-
-### 1. 图像增强工具
-
-**功能**：将输入图像扩充到不同的分辨率，用于测试不同分辨率下的模型性能。
-
-**使用方法**：
-
-```bash
-# 基本用法（生成所有分辨率）
-python image_enhancer.py test.jpg
-
-# 指定分辨率
-python image_enhancer.py test.jpg --resolutions 640x640 1k 2k
-
-# 使用OpenCV后端
-python image_enhancer.py test.jpg --backend opencv
-
-# 指定输出目录
-python image_enhancer.py test.jpg --output my_enhanced_images
+# 使用上下文管理器
+with MultithreadInference(
+    model_path='models/yolov8s.om',
+    device_id=0,
+    resolution='640x640',
+    num_threads=4
+) as inference:
+    results = inference.inference('test.jpg')
+    print(results)
 ```
 
-### 2. 多线程推理版本
+### 4. 使用高分辨率推理
 
-**功能**：使用多线程提高端侧设备吞吐率，支持并行推理。
+```python
+from src.yolo_inference_high_res import HighResInference
 
-**特点**：
-- 支持多个线程并行推理
-- 可指定使用不同的AI核
-- 参考昇腾310B的AI核数量（4个）
-- 支持批量处理多张图像
-- 自动计算推理性能指标
-
-**使用方法**：
-
-```bash
-# 基本用法（4线程）
-python src/yolo_inference_multithread.py test1.jpg test2.jpg test3.jpg test4.jpg
-
-# 指定线程数
-python src/yolo_inference_multithread.py test1.jpg test2.jpg --threads 2
-
-# 使用YOLOv8模型和1k分辨率
-python src/yolo_inference_multithread.py test*.jpg --model yolov8s.om --resolution 1k
-
-# 使用OpenCV后端
-python src/yolo_inference_multithread.py test.jpg --backend opencv
+# 使用上下文管理器
+with HighResInference(
+    model_path='models/yolov8s.om',
+    device_id=0,
+    resolution='640x640',
+    tile_size=640,
+    overlap=100
+) as inference:
+    results = inference.inference('high_res_image.jpg')
+    print(results)
 ```
 
-### 3. 高分辨率图像推理
+## 配置管理
 
-**功能**：处理高分辨率图像（如4k、6k等），通过分块并行处理提高效率。
-
-**特点**：
-- 将高分辨率图像划分为带交叉冗余的子块
-- 利用多线程和多AI核并行处理子块
-- 合并检测结果，避免边缘目标漏检
-- 支持大分辨率图像的高效处理
-- 可调整子块大小和重叠比例
-
-**使用方法**：
-
-```bash
-# 基本用法
-python scripts/high_res_inference.py high_res_image.jpg
-
-# 指定子块大小和重叠比例
-python scripts/high_res_inference.py high_res_image.jpg --tile-size 640 640 --overlap 0.2
-
-# 使用更多线程
-python scripts/high_res_inference.py high_res_image.jpg --threads 4
-
-# 使用OpenCV后端
-python scripts/high_res_inference.py high_res_image.jpg --backend opencv
-```
-
-## 脚本说明
-
-### 主要功能
-
-1. **初始化ACL**：设置设备、创建上下文和流
-2. **加载模型**：从文件加载OM模型，获取模型描述
-3. **预处理图像**：调整大小、归一化、格式转换
-4. **执行推理**：调用模型执行推理
-5. **后处理**：获取并解析输出结果
-6. **释放资源**：清理所有分配的资源
+项目使用JSON文件进行配置管理，配置文件位于 `config/default.json`。
 
 ### 配置参数
 
-- `MODEL_PATH`：OM模型路径
-- `DEVICE_ID`：设备ID
-- `INPUT_WIDTH`：输入宽度（默认640）
-- `INPUT_HEIGHT`：输入高度（默认640）
+| 参数 | 描述 | 默认值 |
+|------|------|--------|
+| model_path | OM模型路径 | 'models/yolov8s.om' |
+| device_id | 设备ID | 0 |
+| resolution | 输入分辨率 | '640x640' |
+| tile_size | 高分辨率推理的分块大小 | 640 |
+| overlap | 高分辨率推理的重叠区域 | 100 |
+| num_threads | 多线程推理的线程数 | 4 |
+| backend | 图像读取后端 ('pil' 或 'opencv') | 'pil' |
+| conf_threshold | 置信度阈值 | 0.4 |
+| iou_threshold | IOU阈值 | 0.5 |
+| max_detections | 最大检测数量 | 100 |
+| enable_logging | 是否启用日志 | true |
+| log_level | 日志级别 | 'info' |
+| enable_profiling | 是否启用性能分析 | false |
 
-### 注意事项
+### 配置文件示例
 
-1. 确保Ascend设备已正确安装并配置
-2. 确保OM模型与脚本中的输入尺寸匹配
-3. 对于不同版本的YOLO模型，可能需要调整后处理逻辑
+```json
+{
+  "model_path": "models/yolov8s.om",
+  "device_id": 0,
+  "resolution": "640x640",
+  "tile_size": 640,
+  "overlap": 100,
+  "num_threads": 4,
+  "backend": "pil",
+  "conf_threshold": 0.4,
+  "iou_threshold": 0.5,
+  "max_detections": 100,
+  "enable_logging": true,
+  "log_level": "info",
+  "enable_profiling": false
+}
+```
+
+### 配置管理示例
+
+```python
+from config import Config
+
+# 获取配置实例
+config = Config.get_instance()
+
+# 查看当前配置
+print(f"模型路径: {config.model_path}")
+print(f"设备ID: {config.device_id}")
+
+# 更新配置
+config.update(
+    model_path="models/yolov8m.om",
+    resolution="1024x1024"
+)
+
+# 保存配置到文件（自动完成）
+print("配置已更新并保存")
+```
+
+## 推荐配置文件
+
+项目提供了几个预定义的配置文件，适用于不同的场景：
+
+### 1. 高性能配置 (`config/high_performance.json`)
+- **适用场景**：需要快速推理，对精度要求不高的场景
+- **特点**：使用轻量级模型，较低的分辨率，关闭日志，最大线程数
+- **配置要点**：
+  - 模型：yolov8n.om（最轻量级）
+  - 分辨率：640x640
+  - 线程数：4
+  - 后端：opencv
+  - 关闭日志
+
+### 2. 高精度配置 (`config/high_accuracy.json`)
+- **适用场景**：对检测精度要求较高的场景
+- **特点**：使用较大模型，较高的分辨率，较高的置信度阈值
+- **配置要点**：
+  - 模型：yolov8l.om（较大模型）
+  - 分辨率：1024x1024
+  - 线程数：2（减少资源竞争）
+  - 置信度阈值：0.5
+  - IOU阈值：0.6
+
+### 3. 高分辨率配置 (`config/high_resolution.json`)
+- **适用场景**：处理大分辨率图片的场景
+- **特点**：优化的分块大小和重叠区域，适合处理高分辨率图像
+- **配置要点**：
+  - 模型：yolov8m.om（平衡性能和精度）
+  - 分辨率：640x640
+  - 分块大小：640
+  - 重叠区域：150
+  - 线程数：4
+
+## 配置文件管理
+
+项目提供了配置文件管理脚本，用于管理和切换不同的配置文件：
+
+### 用法
+
+```bash
+# 列出所有可用的配置文件
+python scripts/config_manager.py list
+
+# 显示配置文件内容
+python scripts/config_manager.py show high_performance.json
+
+# 使用指定的配置文件
+python scripts/config_manager.py use high_accuracy.json
+
+# 创建新的配置文件
+python scripts/config_manager.py create my_config --model_path models/yolov8s.om --resolution 640x640
+```
+
+### 示例
+
+```bash
+# 切换到高性能配置
+python scripts/config_manager.py use high_performance.json
+
+# 查看当前配置
+python scripts/config_manager.py show default.json
+```
+
+## 性能优化
+
+1. **选择合适的推理模式**：
+   - 小图片：使用基础推理模式
+   - 中等大小图片：使用快速推理模式
+   - 大量图片：使用多线程推理模式
+   - 大分辨率图片：使用高分辨率推理模式
+
+2. **调整分辨率**：根据模型要求和性能需求调整输入分辨率
+
+3. **调整线程数**：根据硬件资源调整多线程推理的线程数
+
+4. **使用OpenCV**：如果安装了OpenCV，预处理速度会更快
 
 ## 故障排除
 
-- **模型加载失败**：检查模型文件路径和权限
-- **内存分配失败**：检查设备内存是否充足
-- **推理失败**：检查输入数据格式是否正确
+1. **模型加载失败**：
+   - 检查模型文件路径是否正确
+   - 确保模型是针对Ascend平台优化的OM格式
 
-## 参考文档
+2. **推理失败**：
+   - 检查设备ID是否正确
+   - 确保ACL库已正确安装和配置
 
-- [AscendCL开发指南](https://www.hiascend.com/document/detail/zh/canncommercial/700/inferapplicationdev/aclcppdevg/aclcppdevg_0000.html)
+3. **内存不足**：
+   - 对于高分辨率图像，调整tile_size和overlap参数
+   - 减少线程数
+
+4. **性能问题**：
+   - 检查是否使用了合适的推理模式
+   - 确保使用了正确的分辨率
+
+## 贡献
+
+欢迎提交Issue和Pull Request！
+
+## 许可证
+
+[MIT License](LICENSE)

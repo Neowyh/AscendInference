@@ -1,0 +1,15 @@
+{
+  "model_path": "models/yolov8m.om",
+  "device_id": 0,
+  "resolution": "640x640",
+  "tile_size": 640,
+  "overlap": 150,
+  "num_threads": 4,
+  "backend": "opencv",
+  "conf_threshold": 0.4,
+  "iou_threshold": 0.5,
+  "max_detections": 150,
+  "enable_logging": true,
+  "log_level": "info",
+  "enable_profiling": false
+}
