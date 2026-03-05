@@ -121,6 +121,8 @@ def cmd_infer(args):
     
     all_inference_times = []
     all_total_times = []
+    all_preprocess_times = []
+    all_get_result_times = []
     results = []
     
     try:
@@ -130,6 +132,8 @@ def cmd_infer(args):
             
             inference_times = []
             total_times = []
+            preprocess_times = []
+            get_result_times = []
             
             for i in range(iterations):
                 if args.mode == 'high_res':
@@ -150,8 +154,7 @@ def cmd_infer(args):
                     total_times.append(total_elapsed)
                     
                 else:
-                    total_start = time.time()
-                    
+                    # Base 模式：分别统计预处理、推理执行、获取结果的时间
                     preprocess_start = time.time()
                     if not inference.preprocess(image_path, config.backend):
                         print(f"第 {i+1} 次预处理失败")
@@ -171,6 +174,8 @@ def cmd_infer(args):
                     total_time = preprocess_time + execute_time + get_result_time
                     inference_times.append(execute_time)
                     total_times.append(total_time)
+                    preprocess_times.append(preprocess_time)
+                    get_result_times.append(get_result_time)
             
             # 保存结果
             if inference_times:
@@ -178,10 +183,15 @@ def cmd_infer(args):
                     'image': image_path,
                     'result': result,
                     'inference_times': inference_times,
-                    'total_times': total_times
+                    'total_times': total_times,
+                    'preprocess_times': preprocess_times,
+                    'get_result_times': get_result_times
                 })
                 all_inference_times.extend(inference_times)
                 all_total_times.extend(total_times)
+                if args.mode == 'base':
+                    all_preprocess_times.extend(preprocess_times)
+                    all_get_result_times.extend(get_result_times)
             
             # 显示每次的结果
             if (is_benchmark or is_batch) and inference_times:
@@ -212,9 +222,21 @@ def cmd_infer(args):
                     print(f"  总吞吐率：{len(image_paths)*iterations/sum(all_total_times):.2f} 张/秒")
             
             elif not is_benchmark and not is_batch and all_total_times:
-                print(f"\n时间统计:")
-                print(f"  推理执行：{all_inference_times[0]:.4f} 秒")
-                print(f"  总时间：{all_total_times[0]:.4f} 秒")
+                if args.mode == 'base' and all_preprocess_times:
+                    avg_preprocess = sum(all_preprocess_times) / len(all_preprocess_times)
+                    avg_inference = sum(all_inference_times) / len(all_inference_times)
+                    avg_get_result = sum(all_get_result_times) / len(all_get_result_times)
+                    avg_total = sum(all_total_times) / len(all_total_times)
+                    
+                    print(f"\n时间统计:")
+                    print(f"  预处理：{avg_preprocess:.4f} 秒")
+                    print(f"  模型推理：{avg_inference:.4f} 秒")
+                    print(f"  后处理：{avg_get_result:.4f} 秒")
+                    print(f"  总时间：{avg_total:.4f} 秒")
+                else:
+                    print(f"\n时间统计:")
+                    print(f"  推理执行：{all_inference_times[0]:.4f} 秒")
+                    print(f"  总时间：{all_total_times[0]:.4f} 秒")
     
     finally:
         # 销毁资源
