@@ -31,16 +31,19 @@ export LD_LIBRARY_PATH=$ASCEND_HOME/ascend-toolkit/latest/lib64:$LD_LIBRARY_PATH
 
 ```bash
 # 推理单张图片
-python main.py single test.jpg --model models/yolov8s.om
+python main.py infer test.jpg --model models/yolov8s.om
 
 # 使用配置文件
-python main.py single test.jpg --config config/default.json
+python main.py infer test.jpg --config config/default.json
 
-# 批量推理
-python main.py batch ./images --output ./results
+# 性能测试（推理 10 次，统计平均时间和 FPS）
+python main.py infer test.jpg --iterations 10
 
-# 性能测试（统计各阶段时间）
-python main.py single test.jpg --mode base
+# 批量推理（输入为目录）
+python main.py infer ./images --output ./results
+
+# 多线程推理（每个 AI 核心 2 个线程）
+python main.py infer test.jpg --mode multithread --threads-per-core 2
 ```
 
 ### 使用 Python API
