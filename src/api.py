@@ -6,6 +6,9 @@
 提供简洁的推理接口
 """
 
+from typing import Optional, List, Any
+import numpy as np
+
 try:
     from .inference import Inference, MultithreadInference, HighResInference
     HAS_INFERENCE = True
@@ -21,8 +24,15 @@ except ImportError:
     HAS_PROFILER = False
 
 
-def _profile_wrapper(name):
-    """简单的性能分析装饰器（当 profiler 不可用时）"""
+def _profile_wrapper(name: str):
+    """简单的性能分析装饰器（当 profiler 不可用时）
+    
+    Args:
+        name: 性能分析名称
+        
+    Returns:
+        装饰器函数
+    """
     def decorator(func):
         def wrapper(*args, **kwargs):
             return func(*args, **kwargs)
@@ -34,16 +44,24 @@ class InferenceAPI:
     """统一推理 API"""
     
     @staticmethod
-    def inference_image(mode, image_path, config=None):
+    def inference_image(
+        mode: str, 
+        image_path: str, 
+        config: Optional[Config] = None
+    ) -> Optional[np.ndarray]:
         """推理单张图片
         
         Args:
             mode: 推理模式 ('base', 'multithread', 'high_res')
             image_path: 图片路径
-            config: Config 实例
+            config: Config 实例，None 则使用默认配置
             
         Returns:
-            推理结果
+            推理结果 numpy 数组，失败返回 None
+            
+        Raises:
+            ImportError: 推理模块不可用时
+            Exception: 推理过程中出现错误
         """
         if not HAS_INFERENCE:
             raise ImportError("推理模块不可用")
@@ -57,7 +75,7 @@ class InferenceAPI:
             profile_decorator = _profile_wrapper(f"单张图片推理 ({mode})")
         
         @profile_decorator
-        def _inference():
+        def _inference() -> Optional[np.ndarray]:
             if mode == 'high_res':
                 inference = HighResInference(config)
                 return inference.process_image(image_path, config.backend)
@@ -79,16 +97,24 @@ class InferenceAPI:
         return _inference()
     
     @staticmethod
-    def inference_batch(mode, image_paths, config=None):
-        """批量推理图片
+    def inference_batch(
+        mode: str, 
+        image_paths: List[str], 
+        config: Optional[Config] = None
+    ) -> List[Optional[np.ndarray]]:
+        """批量推理图片（循环单张推理）
         
         Args:
             mode: 推理模式
             image_paths: 图片路径列表
-            config: Config 实例
+            config: Config 实例，None 则使用默认配置
             
         Returns:
-            推理结果列表
+            推理结果列表，失败项为 None
+            
+        Raises:
+            ImportError: 推理模块不可用时
+            Exception: 推理过程中出现错误
         """
         if not HAS_INFERENCE:
             raise ImportError("推理模块不可用")
@@ -102,8 +128,8 @@ class InferenceAPI:
             profile_decorator = _profile_wrapper(f"批量图片推理 ({mode})")
         
         @profile_decorator
-        def _inference():
-            results = []
+        def _inference() -> List[Optional[np.ndarray]]:
+            results: List[Optional[np.ndarray]] = []
             
             if mode == 'high_res':
                 inference = HighResInference(config)

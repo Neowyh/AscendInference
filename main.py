@@ -12,10 +12,18 @@ import argparse
 import json
 import time
 from datetime import datetime
+from pathlib import Path
 
 from config import Config
 from src.api import InferenceAPI
 from src.inference import Inference, MultithreadInference, HighResInference
+from utils.logger import LoggerConfig
+
+# 版本号
+__version__ = "1.0.0"
+
+# 获取日志记录器
+logger = LoggerConfig.setup_logger('ascend_inference.main')
 
 
 def load_config(args):
@@ -23,10 +31,10 @@ def load_config(args):
     # 1. 从 JSON 文件加载基础配置
     if args.config:
         config = Config.from_json(args.config)
-        print(f"已加载配置文件：{args.config}")
+        logger.info(f"已加载配置文件：{args.config}")
     else:
         config = Config()
-        print("使用默认配置")
+        logger.info("使用默认配置")
     
     # 2. 应用命令行参数覆盖（优先级更高）
     overrides = {}
@@ -43,7 +51,7 @@ def load_config(args):
     
     if overrides:
         config.apply_overrides(**overrides)
-        print(f"命令行参数覆盖：{overrides}")
+        logger.info(f"命令行参数覆盖：{overrides}")
     
     return config
 
@@ -268,7 +276,13 @@ def cmd_infer(args):
 
 
 def main():
-    parser = argparse.ArgumentParser(description='昇腾推理工具', prog='ascend-inference')
+    parser = argparse.ArgumentParser(
+        description='昇腾推理工具', 
+        prog='ascend-inference',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=f'版本：{__version__}'
+    )
+    parser.add_argument('--version', action='version', version=f'%(prog)s {__version__}')
     subparsers = parser.add_subparsers(dest='command', help='命令')
     
     # 统一的推理命令

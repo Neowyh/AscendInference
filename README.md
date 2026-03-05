@@ -15,9 +15,7 @@
 ### 安装依赖
 
 ```bash
-pip install numpy Pillow
-# 可选
-pip install opencv-python
+pip install -r requirements.txt
 ```
 
 ### 配置环境变量
@@ -85,17 +83,7 @@ results = InferenceAPI.inference_batch(
 ### 两层配置架构
 
 ```
-┌─────────────────────────────────────┐
-│  1. JSON 文件 - 基础配置（最全）     │
-│     - 包含所有配置项                │
-│     - 作为配置的基准                │
-└─────────────────────────────────────┘
-              ↓
-┌─────────────────────────────────────┐
-│  2. 命令行参数 - 覆盖配置            │
-│     - 只包含需要调整的项            │
-│     - 优先级更高，覆盖 JSON 配置      │
-└─────────────────────────────────────┘
+命令行参数 > JSON 配置文件 > 代码默认值
 ```
 
 ### 使用方式
@@ -103,31 +91,16 @@ results = InferenceAPI.inference_batch(
 #### 方式 1：仅使用 JSON 配置文件
 
 ```bash
-python main.py single test.jpg --config config/default.json
+python main.py infer test.jpg --config config/default.json
 ```
 
 #### 方式 2：JSON 配置 + 命令行参数覆盖
 
 ```bash
-python main.py single test.jpg \
+python main.py infer test.jpg \
     --config config/default.json \
     --device 1 \
     --resolution 1024x1024
-```
-
-#### 方式 3：仅使用命令行参数（向后兼容）
-
-```bash
-python main.py single test.jpg \
-    --model models/yolov8s.om \
-    --device 0 \
-    --resolution 640x640
-```
-
-### 优先级规则
-
-```
-命令行参数 > JSON 配置文件 > 代码默认值
 ```
 
 ### 完整配置项
@@ -150,60 +123,12 @@ python main.py single test.jpg \
 }
 ```
 
-### 配置项说明
-
-| 配置项 | 类型 | 说明 | 示例 |
-|--------|------|------|------|
-| `model_path` | str | 模型文件路径 | `models/yolov8s.om` |
-| `device_id` | int | Ascend 设备 ID | `0`, `1`, `2` |
-| `resolution` | str | 输入分辨率 | `640x640`, `1k`, `2k` |
-| `tile_size` | int | 分块大小（高分辨率） | `640` |
-| `overlap` | int | 分块重叠像素 | `100` |
-| `num_threads` | int | 线程数 | `4`, `8` |
-| `backend` | str | 图像后端 | `pil`, `opencv` |
-| `conf_threshold` | float | 置信度阈值 | `0.4` |
-| `iou_threshold` | float | NMS IoU 阈值 | `0.5` |
-| `max_detections` | int | 最大检测框数 | `100` |
-| `enable_logging` | bool | 启用日志 | `true`, `false` |
-| `log_level` | str | 日志级别 | `info`, `debug`, `warning` |
-| `enable_profiling` | bool | 性能分析 | `false`, `true` |
-
-### 配置文件模板
-
-项目提供了多种配置文件模板，位于 `config/` 目录：
-
-- **default.json** - 默认配置（平衡性能）
-- **high_performance.json** - 高性能配置
-- **high_accuracy.json** - 高精度配置
-- **high_resolution.json** - 高分辨率配置
-
-### 在代码中使用配置
-
-```python
-from config import Config
-
-# 从 JSON 文件加载配置
-config = Config.from_json("config/default.json")
-
-# 可选：用代码覆盖配置
-config.apply_overrides(
-    device_id=1,
-    num_threads=8
-)
-
-# 使用配置
-inference = Inference(config)
-inference.init()
-```
-
 ## 性能统计
 
-### 单张推理时间统计
-
-运行单张推理时会自动统计各阶段时间：
+运行推理时会自动统计各阶段时间：
 
 ```bash
-python main.py single test.jpg --config config/default.json
+python main.py infer test.jpg --config config/default.json
 ```
 
 **输出示例：**
@@ -222,46 +147,6 @@ python main.py single test.jpg --config config/default.json
   总时间：0.0156 秒
 ```
 
-### 批量推理时间统计
-
-批量推理时会统计平均时间和吞吐率：
-
-```bash
-python main.py batch ./images --output ./results
-```
-
-**输出示例：**
-```
-批量推理配置:
-  模式：multithread
-  图像数量：10
-  模型：models/yolov8s.om
-
-时间统计:
-  平均预处理：0.0085 秒
-  平均推理：0.0051 秒
-  平均后处理：0.0014 秒
-  平均总时间：0.0150 秒
-
-批量统计:
-  成功：10/10
-  总耗时：0.15 秒
-  平均耗时：0.0150 秒/张
-  吞吐率：66.67 张/秒
-```
-
-## 配置参数
-
-| 参数 | 说明 | 默认值 |
-|------|------|--------|
-| model_path | 模型路径 | models/yolov8s.om |
-| device_id | 设备 ID | 0 |
-| resolution | 分辨率 | 640x640 |
-| tile_size | 分块大小 | 640 |
-| overlap | 重叠区域 | 100 |
-| num_threads | 线程数 | 4 |
-| backend | 图像后端 | pil |
-
 ## 项目结构
 
 ```
@@ -269,8 +154,7 @@ AscendInference/
 ├── config/           # 配置模块
 │   ├── __init__.py
 │   ├── config.py     # 配置类
-│   ├── default.json  # 默认配置
-│   └── README.md     # 配置详细说明
+│   └── default.json  # 默认配置
 ├── src/              # 核心推理模块
 │   ├── __init__.py
 │   ├── inference.py  # 推理类
@@ -278,32 +162,31 @@ AscendInference/
 ├── utils/            # 工具函数
 │   ├── __init__.py
 │   ├── acl_utils.py  # ACL 工具
-│   └── profiler.py   # 性能分析
+│   ├── profiler.py   # 性能分析
+│   └── logger.py     # 日志系统
+│   └── memory_pool.py # 内存池
 ├── tools/            # 辅助工具
 │   ├── __init__.py
 │   ├── data_generator.py  # 数据生成
 │   └── image_enhancer.py  # 图像增强
-├── examples/         # 示例代码
-│   └── usage_examples.py
-├── demo/             # 演示工具
-│   └── comprehensive_checker.py
+├── tests/            # 单元测试
+│   ├── __init__.py
+│   ├── test_config.py
+│   └── test_logger.py
 ├── main.py           # CLI 入口
+├── requirements.txt  # 依赖
+├── pyproject.toml    # 项目配置
 └── README.md
 ```
 
-## 检查工具
+## 测试
 
-运行综合检查工具验证环境：
+运行单元测试：
 
 ```bash
-python demo/comprehensive_checker.py
+pip install -r requirements-dev.txt
+pytest tests/ -v
 ```
-
-## 支持的模型
-
-- YOLOv5 (s, n)
-- YOLOv8 (s, n)
-- YOLOv10 (s, n)
 
 ## 环境要求
 

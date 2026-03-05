@@ -1,0 +1,25 @@
+# 昇腾推理项目 - 依赖管理文件
+
+# 核心依赖
+numpy>=1.20.0
+Pillow>=8.0.0
+
+# 可选依赖（图像处理）
+# opencv-python>=4.5.0
+
+# 开发依赖（测试和代码质量）
+# pytest>=7.0.0
+# pytest-cov>=3.0.0
+# mypy>=0.950
+# black>=22.0.0
+# flake8>=4.0.0
+
+# 说明：
+# 1. 核心依赖必须安装
+# 2. 可选依赖根据需求安装（如使用 OpenCV 后端）
+# 3. 开发依赖仅在开发时安装
+#
+# 安装命令：
+#   pip install -r requirements.txt  # 仅核心依赖
+#   pip install opencv-python        # 可选：OpenCV 支持
+#   pip install -r requirements-dev.txt  # 开发依赖

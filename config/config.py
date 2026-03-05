@@ -10,7 +10,23 @@
 
 import json
 import os
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
+from typing import Dict, Tuple, Any, Optional
+
+
+# 类常量（定义在 dataclass 外部）
+SUPPORTED_RESOLUTIONS: Dict[str, Tuple[int, int]] = {
+    "640x640": (640, 640),
+    "1k": (1024, 1024),
+    "1k2k": (1024, 2048),
+    "2k": (2048, 2048),
+    "2k4k": (2048, 4096),
+    "4k": (4096, 4096),
+    "4k6k": (4096, 6144),
+    "3k6k": (3072, 6144),
+    "6k": (6144, 6144)
+}
+MAX_AI_CORES: int = 4
 
 
 @dataclass
@@ -42,23 +58,16 @@ class Config:
     log_level: str = "info"
     enable_profiling: bool = False
     
-    # 类常量
-    SUPPORTED_RESOLUTIONS = {
-        "640x640": (640, 640),
-        "1k": (1024, 1024),
-        "1k2k": (1024, 2048),
-        "2k": (2048, 2048),
-        "2k4k": (2048, 4096),
-        "4k": (4096, 4096),
-        "4k6k": (4096, 6144),
-        "3k6k": (3072, 6144),
-        "6k": (6144, 6144)
-    }
-    MAX_AI_CORES = 4
-    
     @classmethod
     def from_json(cls, path: str) -> 'Config':
-        """从 JSON 文件加载配置（基础配置）"""
+        """从 JSON 文件加载配置（基础配置）
+        
+        Args:
+            path: JSON 配置文件路径
+            
+        Returns:
+            Config 实例
+        """
         if not os.path.exists(path):
             print(f"警告：配置文件不存在 {path}，使用默认配置")
             return cls()
@@ -71,13 +80,36 @@ class Config:
             print(f"警告：加载配置文件失败 {e}，使用默认配置")
             return cls()
     
-    def apply_overrides(self, **kwargs):
-        """应用命令行参数覆盖（优先级更高）"""
+    def apply_overrides(self, **kwargs: Any) -> None:
+        """应用命令行参数覆盖（优先级更高）
+        
+        Args:
+            **kwargs: 需要覆盖的配置项
+        """
         for key, value in kwargs.items():
             if value is not None and hasattr(self, key):
                 setattr(self, key, value)
     
     @classmethod
-    def get_resolution(cls, resolution_name: str) -> tuple:
-        """获取分辨率尺寸"""
-        return cls.SUPPORTED_RESOLUTIONS.get(resolution_name, (640, 640))
+    def get_resolution(cls, resolution_name: str) -> Tuple[int, int]:
+        """获取分辨率尺寸
+        
+        Args:
+            resolution_name: 分辨率名称
+            
+        Returns:
+            (width, height) 元组
+        """
+        return SUPPORTED_RESOLUTIONS.get(resolution_name, (640, 640))
+    
+    @classmethod
+    def is_supported_resolution(cls, resolution_name: str) -> bool:
+        """检查分辨率是否支持
+        
+        Args:
+            resolution_name: 分辨率名称
+            
+        Returns:
+            是否支持
+        """
+        return resolution_name in SUPPORTED_RESOLUTIONS

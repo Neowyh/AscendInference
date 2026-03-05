@@ -18,6 +18,8 @@ from utils.acl_utils import (
 )
 
 from utils.profiler import profile
+from utils.logger import LoggerConfig, get_logger
+from utils.memory_pool import MemoryPool, MultiSizeMemoryPool
 
 __all__ = [
     'init_acl',
@@ -28,5 +30,9 @@ __all__ = [
     'malloc_host',
     'free_device',
     'free_host',
-    'profile'
+    'profile',
+    'LoggerConfig',
+    'get_logger',
+    'MemoryPool',
+    'MultiSizeMemoryPool'
 ]

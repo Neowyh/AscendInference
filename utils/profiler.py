@@ -9,10 +9,11 @@
 import time
 from functools import wraps
 from contextlib import contextmanager
+from typing import Callable, Any, Optional
 
 
 @contextmanager
-def profile(name=""):
+def profile(name: str = ""):
     """性能分析上下文管理器
     
     Args:
@@ -31,7 +32,7 @@ def profile(name=""):
     print(f"[{name}] 耗时：{elapsed:.4f} 秒")
 
 
-def profile_decorator(name=None):
+def profile_decorator(name: Optional[str] = None) -> Callable:
     """性能分析装饰器
     
     Args:
@@ -45,9 +46,9 @@ def profile_decorator(name=None):
         def inference():
             pass
     """
-    def decorator(func):
+    def decorator(func: Callable) -> Callable:
         @wraps(func)
-        def wrapper(*args, **kwargs):
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
             func_name = name or func.__name__
             start = time.time()
             try:

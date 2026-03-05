@@ -40,6 +40,10 @@ except ImportError:
     HAS_OPENCV = False
 
 from config import Config
+from utils.logger import LoggerConfig
+
+# 获取日志记录器
+logger = LoggerConfig.setup_logger('ascend_inference.inference')
 
 
 class Inference:
@@ -72,40 +76,85 @@ class Inference:
         self.initialized = False
         self.model_loaded = False
     
-    def init(self):
+    def init(self, warmup: bool = True, warmup_iterations: int = 3):
         """初始化 ACL 和加载模型
         
+        Args:
+            warmup: 是否进行模型预热
+            warmup_iterations: 预热迭代次数
+            
         Returns:
             bool: 是否成功
         """
         if not HAS_ACL:
-            print("ACL 库不可用")
-            print("提示：ACL 库仅在昇腾设备上可用。如在非昇腾设备上测试，请确保已安装 ACL 库或跳过 ACL 相关功能。")
+            logger.error("ACL 库不可用")
+            logger.error("提示：ACL 库仅在昇腾设备上可用。如在非昇腾设备上测试，请确保已安装 ACL 库或跳过 ACL 相关功能。")
             return False
         
         self.context, self.stream = init_acl(self.device_id)
         if not self.context:
-            print(f"ACL 初始化失败 (device_id={self.device_id})")
-            print("可能原因：")
-            print("  1. 未在昇腾设备上运行")
-            print("  2. 设备 ID 不正确")
-            print("  3. ACL 环境未正确配置")
+            logger.error(f"ACL 初始化失败 (device_id={self.device_id})")
+            logger.error("可能原因：")
+            logger.error("  1. 未在昇腾设备上运行")
+            logger.error("  2. 设备 ID 不正确")
+            logger.error("  3. ACL 环境未正确配置")
             return False
         
         self.initialized = True
         
         if not self._load_model():
-            print("模型加载失败，请检查：")
-            print(f"  1. 模型文件是否存在：{self.model_path}")
-            print("  2. 模型文件是否损坏")
+            logger.error("模型加载失败，请检查：")
+            logger.error(f"  1. 模型文件是否存在：{self.model_path}")
+            logger.error("  2. 模型文件是否损坏")
             self.destroy()
             return False
         
         self.output_host = malloc_host(self.output_size)
         if not self.output_host:
-            print("分配主机输出内存失败")
+            logger.error("分配主机输出内存失败")
             self.destroy()
             return False
+        
+        # 模型预热
+        if warmup and self.config.enable_logging:
+            logger.info(f"模型预热 ({warmup_iterations} 次)...")
+            self._warmup(iterations=warmup_iterations)
+            if self.config.enable_logging:
+                logger.info("模型预热完成")
+        
+        return True
+    
+    def _warmup(self, iterations: int = 3):
+        """模型预热
+        
+        Args:
+            iterations: 预热迭代次数
+        """
+        if not HAS_ACL:
+            return
+        
+        # 创建虚拟输入（全零数组）
+        dummy_input = np.zeros(
+            (self.input_height, self.input_width, 3),
+            dtype=np.float32
+        )
+        
+        for i in range(iterations):
+            # 预处理
+            if not self.preprocess(dummy_input, backend='numpy'):
+                print(f"预热第 {i+1} 次预处理失败")
+                continue
+            
+            # 执行推理
+            if not self.execute():
+                print(f"预热第 {i+1} 次推理失败")
+                continue
+            
+            # 获取结果
+            result = self.get_result()
+            if result is None:
+                print(f"预热第 {i+1} 次获取结果失败")
+                continue
         
         return True
     
@@ -115,43 +164,44 @@ class Inference:
             return True
         
         if not os.path.exists(self.model_path):
-            print(f"模型文件不存在：{self.model_path}")
+            logger.error(f"模型文件不存在：{self.model_path}")
             return False
         
         result = load_model(self.model_path)
         if result[0] is None:
-            print("模型加载失败")
+            logger.error("模型加载失败")
             return False
         
         self.model_id, self.model_desc, self.input_size, self.output_size = result
         
         self.input_buffer = malloc_device(self.input_size)
         if not self.input_buffer:
-            print("分配输入设备内存失败")
+            logger.error("分配输入设备内存失败")
             return False
         
         self.output_buffer = malloc_device(self.output_size)
         if not self.output_buffer:
-            print("分配输出设备内存失败")
+            logger.error("分配输出设备内存失败")
             return False
         
         self.input_dataset = create_dataset(self.input_buffer, self.input_size, "输入数据集")
         if not self.input_dataset:
-            print("创建输入数据集失败，请检查：")
-            print("  1. 输入缓冲区是否分配成功")
-            print("  2. 输入数据大小是否正确")
-            print("  3. ACL 库是否正常工作")
+            logger.error("创建输入数据集失败，请检查：")
+            logger.error("  1. 输入缓冲区是否分配成功")
+            logger.error("  2. 输入数据大小是否正确")
+            logger.error("  3. ACL 库是否正常工作")
             return False
         
         self.output_dataset = create_dataset(self.output_buffer, self.output_size, "输出数据集")
         if not self.output_dataset:
-            print("创建输出数据集失败，请检查：")
-            print("  1. 输出缓冲区是否分配成功")
-            print("  2. 输出数据大小是否正确")
-            print("  3. ACL 库是否正常工作")
+            logger.error("创建输出数据集失败，请检查：")
+            logger.error("  1. 输出缓冲区是否分配成功")
+            logger.error("  2. 输出数据大小是否正确")
+            logger.error("  3. ACL 库是否正常工作")
             return False
         
         self.model_loaded = True
+        logger.info(f"模型加载成功：{self.model_path}")
         return True
     
     def _load_image(self, image_data, backend='pil'):
