@@ -32,13 +32,13 @@ def load_config(args):
     overrides = {}
     if args.model:
         overrides['model_path'] = args.model
-    if args.device:
+    if hasattr(args, 'device') and args.device:
         overrides['device_id'] = args.device
-    if args.resolution:
+    if hasattr(args, 'resolution') and args.resolution:
         overrides['resolution'] = args.resolution
-    if args.backend:
+    if hasattr(args, 'backend') and args.backend:
         overrides['backend'] = args.backend
-    if args.threads:
+    if hasattr(args, 'threads') and args.threads:
         overrides['num_threads'] = args.threads
     
     if overrides:
