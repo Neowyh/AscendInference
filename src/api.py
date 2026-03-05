@@ -1,82 +1,143 @@
-from .base_inference import BaseInference
-from .yolo_inference import YOLOInference
-from .yolo_inference_fast import YOLOInferenceFast
-from .yolo_inference_multithread import MultithreadInference
-from .yolo_inference_high_res import HighResInference
-from ..config import Config
-from ..utils.profiler import Profiler
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+统一推理 API
+
+提供简洁的推理接口
+"""
+
+try:
+    from .inference import Inference, MultithreadInference, HighResInference
+    HAS_INFERENCE = True
+except ImportError:
+    HAS_INFERENCE = False
+
+from config import Config
+
+try:
+    from utils.profiler import profile
+    HAS_PROFILER = True
+except ImportError:
+    HAS_PROFILER = False
+
+
+def _profile_wrapper(name):
+    """简单的性能分析装饰器（当 profiler 不可用时）"""
+    def decorator(func):
+        def wrapper(*args, **kwargs):
+            return func(*args, **kwargs)
+        return wrapper
+    return decorator
+
 
 class InferenceAPI:
-    """统一推理API接口"""
+    """统一推理 API"""
     
     @staticmethod
-    def create_inference(inference_type, **kwargs):
-        """
-        创建推理实例
+    def inference_image(mode, image_path, config=None):
+        """推理单张图片
         
         Args:
-            inference_type: 推理类型，可选值：'base', 'fast', 'multithread', 'high_res'
-            **kwargs: 配置参数，会覆盖默认配置
-            
-        Returns:
-            BaseInference: 推理实例
-        """
-        # 更新配置
-        config = Config.get_instance()
-        config.update(kwargs)
-        
-        # 根据类型创建推理实例
-        if inference_type == 'base':
-            return YOLOInference()
-        elif inference_type == 'fast':
-            return YOLOInferenceFast()
-        elif inference_type == 'multithread':
-            return MultithreadInference()
-        elif inference_type == 'high_res':
-            return HighResInference()
-        else:
-            raise ValueError(f"不支持的推理类型: {inference_type}")
-    
-    @staticmethod
-    def inference_image(inference_type, image_path, **kwargs):
-        """
-        推理单张图片
-        
-        Args:
-            inference_type: 推理类型
+            mode: 推理模式 ('base', 'multithread', 'high_res')
             image_path: 图片路径
-            **kwargs: 配置参数
+            config: Config 实例
             
         Returns:
-            list: 检测结果
+            推理结果
         """
-        profiler = Profiler(enable=True)
-        profiler.start()
-        with InferenceAPI.create_inference(inference_type, **kwargs) as inference:
-            result = inference.inference(image_path)
-        profiler.stop()
-        profiler.print_stats(f"单张图片推理 ({inference_type})")
-        return result
+        if not HAS_INFERENCE:
+            raise ImportError("推理模块不可用")
+        
+        config = config or Config()
+        
+        if HAS_PROFILER:
+            from utils.profiler import profile
+            profile_decorator = profile(f"单张图片推理 ({mode})")
+        else:
+            profile_decorator = _profile_wrapper(f"单张图片推理 ({mode})")
+        
+        @profile_decorator
+        def _inference():
+            if mode == 'high_res':
+                inference = HighResInference(config)
+                return inference.process_image(image_path, config.backend)
+            
+            elif mode == 'multithread':
+                inference = MultithreadInference(config)
+                if not inference.start():
+                    raise Exception("无法启动推理")
+                inference.add_task(image_path, config.backend)
+                inference.wait_completion()
+                results = inference.get_results()
+                return results[0][1] if results else None
+            
+            else:
+                inference = Inference(config)
+                with inference:
+                    return inference.run_inference(image_path, config.backend)
+        
+        return _inference()
     
     @staticmethod
-    def inference_batch(inference_type, image_paths, **kwargs):
-        """
-        批量推理图片
+    def inference_batch(mode, image_paths, config=None):
+        """批量推理图片
         
         Args:
-            inference_type: 推理类型
+            mode: 推理模式
             image_paths: 图片路径列表
-            **kwargs: 配置参数
+            config: Config 实例
             
         Returns:
-            list: 检测结果列表
+            推理结果列表
         """
-        profiler = Profiler(enable=True)
-        profiler.start()
-        results = []
-        with InferenceAPI.create_inference(inference_type, **kwargs) as inference:
-            for image_path in image_paths:
-                results.append(inference.inference(image_path))
-        profiler.stop()
-        profiler.print_stats(f"批量图片推理 ({inference_type})")
-        return results
+        if not HAS_INFERENCE:
+            raise ImportError("推理模块不可用")
+        
+        config = config or Config()
+        
+        if HAS_PROFILER:
+            from utils.profiler import profile
+            profile_decorator = profile(f"批量图片推理 ({mode})")
+        else:
+            profile_decorator = _profile_wrapper(f"批量图片推理 ({mode})")
+        
+        @profile_decorator
+        def _inference():
+            results = []
+            
+            if mode == 'high_res':
+                inference = HighResInference(config)
+                try:
+                    for image_path in image_paths:
+                        result = inference.process_image(image_path, config.backend)
+                        results.append(result)
+                finally:
+                    inference.multithread.stop()
+            
+            elif mode == 'multithread':
+                inference = MultithreadInference(config)
+                try:
+                    if not inference.start():
+                        raise Exception("无法启动推理")
+                    for image_path in image_paths:
+                        inference.add_task(image_path, config.backend)
+                    inference.wait_completion()
+                    results_dict = dict(inference.get_results())
+                    results = [results_dict.get(path) for path in image_paths]
+                finally:
+                    inference.stop()
+            
+            else:
+                inference = Inference(config)
+                try:
+                    if not inference.init():
+                        raise Exception("初始化失败")
+                    for image_path in image_paths:
+                        result = inference.run_inference(image_path, config.backend)
+                        results.append(result)
+                finally:
+                    inference.destroy()
+            
+            return results
+        
+        return _inference()

@@ -1,15 +1,15 @@
 {
-  "model_path": "models/yolov8l.om",
-  "device_id": 1,
-  "resolution": "1024x1024",
-  "tile_size": 1024,
-  "overlap": 150,
-  "num_threads": 2,
-  "backend": "opencv",
-  "conf_threshold": 0.5,
-  "iou_threshold": 0.6,
-  "max_detections": 200,
-  "enable_logging": false,
-  "log_level": "debug",
-  "enable_profiling": true
+  "model_path": "models/yolov8s.om",
+  "device_id": 0,
+  "resolution": "640x640",
+  "tile_size": 640,
+  "overlap": 100,
+  "num_threads": 4,
+  "backend": "pil",
+  "conf_threshold": 0.4,
+  "iou_threshold": 0.5,
+  "max_detections": 100,
+  "enable_logging": true,
+  "log_level": "info",
+  "enable_profiling": false
 }
