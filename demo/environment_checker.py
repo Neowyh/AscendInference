@@ -59,11 +59,23 @@ def check_environment_variables():
     """检查必需的环境变量是否已设置"""
     print("\n=== 检查环境变量 ===")
     required_vars = [
-        'ASCEND_HOME',
         'LD_LIBRARY_PATH'
     ]
     
-    all_set = True
+    # 检查ASCEND_HOME或ASCEND_HOME_PATH
+    has_ascend_home = False
+    if 'ASCEND_HOME' in os.environ:
+        print("✓ ASCEND_HOME 已设置")
+        has_ascend_home = True
+    elif 'ASCEND_HOME_PATH' in os.environ:
+        print("✓ ASCEND_HOME_PATH 已设置 (作为ASCEND_HOME的替代)")
+        # 设置ASCEND_HOME环境变量，以便后续使用
+        os.environ['ASCEND_HOME'] = os.environ['ASCEND_HOME_PATH']
+        has_ascend_home = True
+    else:
+        print("⚠ ASCEND_HOME 或 ASCEND_HOME_PATH 未设置")
+    
+    all_set = has_ascend_home
     for var in required_vars:
         if var in os.environ:
             print(f"✓ {var} 已设置")
