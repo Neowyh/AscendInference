@@ -6,7 +6,12 @@ ACL 工具函数
 提供简化的 ACL 初始化、模型加载和内存管理功能
 """
 
-import acl
+try:
+    import acl
+    HAS_ACL = True
+except ImportError:
+    HAS_ACL = False
+    acl = None
 
 ACL_MEM_MALLOC_HUGE_FIRST = 0
 ACL_MEM_MALLOC_HUGE_ONLY = 1
@@ -15,6 +20,13 @@ ACL_MEM_MALLOC_NORMAL_ONLY = 2
 MEMCPY_HOST_TO_DEVICE = 1
 MEMCPY_DEVICE_TO_HOST = 2
 MEMCPY_DEVICE_TO_DEVICE = 0
+
+try:
+    from utils.logger import LoggerConfig
+    logger = LoggerConfig.setup_logger('ascend_inference.acl_utils')
+except Exception:
+    import logging
+    logger = logging.getLogger('ascend_inference.acl_utils')
 
 
 def init_acl(device_id=0):
@@ -26,6 +38,10 @@ def init_acl(device_id=0):
     Returns:
         tuple: (context, stream) 成功返回上下文和流，失败返回 (None, None)
     """
+    if not HAS_ACL:
+        logger.warning("ACL 库不可用")
+        return None, None
+    
     ret = acl.init()
     if ret != 0:
         return None, None
@@ -62,6 +78,9 @@ def destroy_acl(context, stream, device_id):
     Returns:
         bool: 是否成功
     """
+    if not HAS_ACL:
+        return True
+    
     try:
         if context:
             acl.rt.set_context(context)
@@ -76,7 +95,7 @@ def destroy_acl(context, stream, device_id):
         acl.finalize()
         return True
     except Exception as e:
-        print(f"ACL 资源销毁异常：{e}")
+        logger.error(f"ACL 资源销毁异常：{e}")
         return False
 
 
@@ -90,6 +109,9 @@ def load_model(model_path):
         tuple: (model_id, model_desc, input_size, output_size) 
                成功返回模型信息，失败返回 (None, None, 0, 0)
     """
+    if not HAS_ACL:
+        return None, None, 0, 0
+    
     model_id, ret = acl.mdl.load_from_file(model_path)
     if ret != 0:
         return None, None, 0, 0
@@ -127,6 +149,9 @@ def unload_model(model_id, model_desc):
     Returns:
         bool: 是否成功
     """
+    if not HAS_ACL:
+        return True
+    
     try:
         if model_desc:
             acl.mdl.destroy_desc(model_desc)
@@ -135,12 +160,12 @@ def unload_model(model_id, model_desc):
             ret = acl.mdl.unload(model_id)
             if ret != 0:
                 err_msg = get_last_error_msg()
-                print(f"模型卸载失败，错误码：{ret}，错误信息：{err_msg}")
+                logger.error(f"模型卸载失败，错误码：{ret}，错误信息：{err_msg}")
                 return False
         
         return True
     except Exception as e:
-        print(f"模型卸载异常：{e}")
+        logger.error(f"模型卸载异常：{e}")
         return False
 
 
@@ -153,6 +178,9 @@ def malloc_device(size):
     Returns:
         设备内存指针，失败返回 None
     """
+    if not HAS_ACL:
+        return None
+    
     buffer, ret = acl.rt.malloc(size, ACL_MEM_MALLOC_HUGE_FIRST)
     if ret != 0:
         return None
@@ -168,6 +196,9 @@ def malloc_host(size):
     Returns:
         主机内存指针，失败返回 None
     """
+    if not HAS_ACL:
+        return None
+    
     buffer, ret = acl.rt.malloc_host(size)
     if ret != 0:
         return None
@@ -180,6 +211,9 @@ def free_device(buffer):
     Args:
         buffer: 设备内存指针
     """
+    if not HAS_ACL:
+        return
+    
     if buffer:
         acl.rt.free(buffer)
 
@@ -190,6 +224,9 @@ def free_host(buffer):
     Args:
         buffer: 主机内存指针
     """
+    if not HAS_ACL:
+        return
+    
     if buffer:
         acl.rt.free_host(buffer)
 
@@ -205,47 +242,45 @@ def create_dataset(buffer, size, dataset_name=""):
     Returns:
         dataset: 数据集对象，失败返回 None
     """
+    if not HAS_ACL:
+        return None
+    
     try:
         dataset = acl.mdl.create_dataset()
         if dataset is None:
-            print(f"[ERROR] {dataset_name}: 创建 dataset 对象失败")
+            logger.error(f"{dataset_name}: 创建 dataset 对象失败")
             return None
         
         if buffer is None:
-            print(f"[ERROR] {dataset_name}: 缓冲区指针为空")
+            logger.error(f"{dataset_name}: 缓冲区指针为空")
             acl.mdl.destroy_dataset(dataset)
             return None
         
         if size <= 0:
-            print(f"[ERROR] {dataset_name}: 数据大小无效 (size={size})")
+            logger.error(f"{dataset_name}: 数据大小无效 (size={size})")
             acl.mdl.destroy_dataset(dataset)
             return None
         
         data_buffer = acl.create_data_buffer(buffer, size)
         if data_buffer is None:
             err_msg = get_last_error_msg()
-            print(f"[ERROR] {dataset_name}: 创建 data_buffer 失败 (size={size}), 错误：{err_msg}")
+            logger.error(f"{dataset_name}: 创建 data_buffer 失败 (size={size}), 错误：{err_msg}")
             acl.mdl.destroy_dataset(dataset)
             return None
         
         returned_dataset, ret = acl.mdl.add_dataset_buffer(dataset, data_buffer)
-        # 验证返回的 dataset 是否与输入一致
         if returned_dataset != dataset:
-            print(f"[WARNING] {dataset_name}: 返回的 dataset 与输入不一致")
-            # 继续使用，可能是正常的
-        # 检查错误码
+            logger.warning(f"{dataset_name}: 返回的 dataset 与输入不一致")
         if ret != 0:
             err_msg = get_last_error_msg()
-            print(f"[ERROR] {dataset_name}: 添加 buffer 到 dataset 失败，错误码：{ret}, 错误：{err_msg}")
+            logger.error(f"{dataset_name}: 添加 buffer 到 dataset 失败，错误码：{ret}, 错误：{err_msg}")
             acl.destroy_data_buffer(data_buffer)
             acl.mdl.destroy_dataset(dataset)
             return None
         
         return dataset
     except Exception as e:
-        print(f"[ERROR] {dataset_name}: 创建 dataset 异常：{e}")
-        import traceback
-        traceback.print_exc()
+        logger.error(f"{dataset_name}: 创建 dataset 异常：{e}")
         return None
 
 
@@ -259,6 +294,9 @@ def destroy_dataset(dataset, context=None):
     Returns:
         bool: 是否成功
     """
+    if not HAS_ACL:
+        return True
+    
     if dataset is None:
         return True
     
@@ -275,7 +313,7 @@ def destroy_dataset(dataset, context=None):
         acl.mdl.destroy_dataset(dataset)
         return True
     except Exception as e:
-        print(f"[ERROR] 销毁 dataset 异常：{e}")
+        logger.error(f"销毁 dataset 异常：{e}")
         return False
 
 
@@ -285,6 +323,9 @@ def get_last_error_msg():
     Returns:
         str: 错误信息
     """
+    if not HAS_ACL:
+        return "ACL 库不可用"
+    
     try:
         return acl.get_recent_err_msg()
     except:

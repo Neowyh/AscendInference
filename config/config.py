@@ -10,12 +10,15 @@
 
 import json
 import os
-from dataclasses import dataclass
-from typing import Dict, Tuple, Any, Optional
+import logging
+from dataclasses import dataclass, field
+from typing import Dict, Tuple, Any
 
 
-# 类常量（定义在 dataclass 外部）
-SUPPORTED_RESOLUTIONS: Dict[str, Tuple[int, int]] = {
+_logger = logging.getLogger('ascend_inference.config')
+
+
+_SUPPORTED_RESOLUTIONS: Dict[str, Tuple[int, int]] = {
     "640x640": (640, 640),
     "1k": (1024, 1024),
     "1k2k": (1024, 2048),
@@ -26,37 +29,46 @@ SUPPORTED_RESOLUTIONS: Dict[str, Tuple[int, int]] = {
     "3k6k": (3072, 6144),
     "6k": (6144, 6144)
 }
-MAX_AI_CORES: int = 4
+
+
+_MAX_AI_CORES: int = 4
+
+
+def get_supported_resolutions() -> Dict[str, Tuple[int, int]]:
+    """获取支持的分辨率列表"""
+    return _SUPPORTED_RESOLUTIONS.copy()
+
+
+def get_max_ai_cores() -> int:
+    """获取最大 AI 核心数"""
+    return _MAX_AI_CORES
 
 
 @dataclass
 class Config:
     """配置类 - 所有配置项都在 JSON 文件中定义"""
-    
-    # 推理核心配置
+
     model_path: str = "models/yolov8s.om"
     device_id: int = 0
     resolution: str = "640x640"
     
-    # 高分辨率配置
     tile_size: int = 640
     overlap: int = 100
     
-    # 多线程配置
     num_threads: int = 4
     
-    # 图像处理配置
     backend: str = "pil"
     
-    # 检测配置
     conf_threshold: float = 0.4
     iou_threshold: float = 0.5
     max_detections: int = 100
     
-    # 日志和性能配置
     enable_logging: bool = True
     log_level: str = "info"
     enable_profiling: bool = False
+    
+    SUPPORTED_RESOLUTIONS = _SUPPORTED_RESOLUTIONS
+    MAX_AI_CORES = _MAX_AI_CORES
     
     @classmethod
     def from_json(cls, path: str) -> 'Config':
@@ -69,7 +81,7 @@ class Config:
             Config 实例
         """
         if not os.path.exists(path):
-            print(f"警告：配置文件不存在 {path}，使用默认配置")
+            _logger.warning(f"配置文件不存在 {path}，使用默认配置")
             return cls()
         
         try:
@@ -77,7 +89,7 @@ class Config:
                 data = json.load(f)
             return cls(**data)
         except Exception as e:
-            print(f"警告：加载配置文件失败 {e}，使用默认配置")
+            _logger.warning(f"加载配置文件失败 {e}，使用默认配置")
             return cls()
     
     def apply_overrides(self, **kwargs: Any) -> None:
@@ -90,8 +102,8 @@ class Config:
             if value is not None and hasattr(self, key):
                 setattr(self, key, value)
     
-    @classmethod
-    def get_resolution(cls, resolution_name: str) -> Tuple[int, int]:
+    @staticmethod
+    def get_resolution(resolution_name: str) -> Tuple[int, int]:
         """获取分辨率尺寸
         
         Args:
@@ -100,10 +112,10 @@ class Config:
         Returns:
             (width, height) 元组
         """
-        return SUPPORTED_RESOLUTIONS.get(resolution_name, (640, 640))
+        return _SUPPORTED_RESOLUTIONS.get(resolution_name, (640, 640))
     
-    @classmethod
-    def is_supported_resolution(cls, resolution_name: str) -> bool:
+    @staticmethod
+    def is_supported_resolution(resolution_name: str) -> bool:
         """检查分辨率是否支持
         
         Args:
@@ -112,4 +124,8 @@ class Config:
         Returns:
             是否支持
         """
-        return resolution_name in SUPPORTED_RESOLUTIONS
+        return resolution_name in _SUPPORTED_RESOLUTIONS
+
+
+SUPPORTED_RESOLUTIONS = _SUPPORTED_RESOLUTIONS
+MAX_AI_CORES = _MAX_AI_CORES

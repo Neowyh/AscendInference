@@ -10,7 +10,6 @@
 """
 
 import os
-import sys
 import time
 import threading
 import queue
@@ -142,18 +141,18 @@ class Inference:
         for i in range(iterations):
             # 预处理
             if not self.preprocess(dummy_input, backend='numpy'):
-                print(f"预热第 {i+1} 次预处理失败")
+                logger.warning(f"预热第 {i+1} 次预处理失败")
                 continue
             
             # 执行推理
             if not self.execute():
-                print(f"预热第 {i+1} 次推理失败")
+                logger.warning(f"预热第 {i+1} 次推理失败")
                 continue
             
             # 获取结果
             result = self.get_result()
             if result is None:
-                print(f"预热第 {i+1} 次获取结果失败")
+                logger.warning(f"预热第 {i+1} 次获取结果失败")
                 continue
         
         return True
@@ -214,32 +213,34 @@ class Inference:
         Returns:
             numpy.ndarray: RGB 图像数组
         """
-        if isinstance(image_data, str):
-            if not os.path.exists(image_data):
-                print(f"图像文件不存在：{image_data}")
-                return None
-            
-            try:
+        try:
+            if isinstance(image_data, str):
+                if not os.path.exists(image_data):
+                    logger.error(f"图像文件不存在：{image_data}")
+                    return None
+                
                 if backend == 'opencv' and HAS_OPENCV:
                     image = cv2.imread(image_data)
                     if image is None:
+                        logger.error(f"OpenCV 读取图像失败：{image_data}")
                         return None
                     image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
                 else:
-                    image = Image.open(image_data)
+                    image = Image.open(image_data).convert('RGB')
                     image = np.array(image)
-            except Exception as e:
-                print(f"读取图像异常：{e}")
+            elif isinstance(image_data, np.ndarray):
+                image = image_data
+            elif isinstance(image_data, Image.Image):
+                image = np.array(image_data)
+            else:
+                logger.error(f"不支持的图像数据类型：{type(image_data)}")
                 return None
-        elif isinstance(image_data, np.ndarray):
-            image = image_data
-        elif isinstance(image_data, Image.Image):
-            image = np.array(image_data)
-        else:
-            print(f"不支持的图像数据类型：{type(image_data)}")
+            
+            return image
+        except Exception as e:
+            logger.error(f"读取图像异常：{e}")
+            logger.debug(f"异常详情：{image_data}")
             return None
-        
-        return image
     
     def _resize_image(self, image, backend='pil'):
         """调整图像大小"""
@@ -250,7 +251,8 @@ class Inference:
                 image = Image.fromarray(image).resize((self.input_width, self.input_height))
                 return np.array(image)
         except Exception as e:
-            print(f"调整图像大小异常：{e}")
+            logger.error(f"调整图像大小异常：{e}")
+            logger.debug(f"图像形状：{image.shape}, 目标尺寸：({self.input_width}, {self.input_height})")
             return None
     
     def preprocess(self, image_data, backend='pil'):
@@ -264,15 +266,17 @@ class Inference:
             bool: 是否成功
         """
         if not HAS_ACL:
-            print("ACL 库不可用")
+            logger.error("ACL 库不可用")
             return False
         
         image = self._load_image(image_data, backend)
         if image is None:
+            logger.error(f"图像加载失败")
             return False
         
         image = self._resize_image(image, backend)
         if image is None:
+            logger.error(f"图像缩放失败")
             return False
         
         if len(image.shape) == 2:
@@ -284,6 +288,7 @@ class Inference:
         try:
             input_host = malloc_host(self.input_size)
             if not input_host:
+                logger.error("分配主机输入内存失败")
                 return False
             
             # 直接拷贝数据到主机内存
@@ -294,12 +299,14 @@ class Inference:
             
             if ret != 0:
                 err_msg = get_last_error_msg()
-                print(f"内存拷贝失败，错误码：{ret}，错误信息：{err_msg}")
+                logger.error(f"内存拷贝失败，错误码：{ret}，错误信息：{err_msg}")
                 return False
         except Exception as e:
-            print(f"预处理异常：{e}")
+            logger.error(f"预处理异常：{e}")
+            logger.debug(f"异常详情：{image_data}")
             return False
         
+        logger.debug("预处理完成")
         return True
     
     def execute(self):
@@ -309,11 +316,11 @@ class Inference:
             bool: 是否成功
         """
         if not HAS_ACL:
-            print("ACL 库不可用")
+            logger.error("ACL 库不可用")
             return False
         
         if not self.model_loaded:
-            print("模型未加载")
+            logger.error("模型未加载")
             return False
         
         try:
@@ -321,16 +328,18 @@ class Inference:
             
             if ret != 0:
                 err_msg = get_last_error_msg()
-                print(f"推理执行失败，错误码：{ret}，错误信息：{err_msg}")
+                logger.error(f"推理执行失败，错误码：{ret}，错误信息：{err_msg}")
                 return False
             
             ret = acl.rt.synchronize_stream(self.stream)
             if ret != 0:
                 err_msg = get_last_error_msg()
-                print(f"Stream 同步失败，错误码：{ret}，错误信息：{err_msg}")
+                logger.error(f"Stream 同步失败，错误码：{ret}，错误信息：{err_msg}")
                 return False
+            
+            logger.debug("推理执行成功")
         except Exception as e:
-            print(f"推理执行异常：{e}")
+            logger.error(f"推理执行异常：{e}")
             return False
         
         return True
@@ -348,7 +357,7 @@ class Inference:
                           self.output_size, MEMCPY_DEVICE_TO_HOST)
         if ret != 0:
             err_msg = get_last_error_msg()
-            print(f"获取结果失败，错误码：{ret}，错误信息：{err_msg}")
+            logger.error(f"获取结果失败，错误码：{ret}，错误信息：{err_msg}")
             return None
         
         # Convert memory address to numpy array using ctypes
@@ -383,16 +392,16 @@ class Inference:
                 acl.rt.set_context(self.context)
                 acl.rt.synchronize_stream(self.stream)
             except Exception as e:
-                print(f"警告：流同步失败：{e}")
+                logger.warning(f"流同步失败：{e}")
         
         if self.input_dataset:
             if not destroy_dataset(self.input_dataset, self.context):
-                print("警告：输入数据集销毁失败")
+                logger.warning("输入数据集销毁失败")
             self.input_dataset = None
         
         if self.output_dataset:
             if not destroy_dataset(self.output_dataset, self.context):
-                print("警告：输出数据集销毁失败")
+                logger.warning("输出数据集销毁失败")
             self.output_dataset = None
         
         if self.output_host:
@@ -409,17 +418,18 @@ class Inference:
         
         if self.model_id:
             if not unload_model(self.model_id, self.model_desc):
-                print("警告：模型卸载失败")
+                logger.warning("模型卸载失败")
             self.model_id = None
             self.model_desc = None
         
         if self.initialized:
             if not destroy_acl(self.context, self.stream, self.device_id):
-                print("警告：ACL 资源销毁失败")
+                logger.warning("ACL 资源销毁失败")
             self.context = None
             self.stream = None
         
         self.initialized = False
+        logger.debug("资源销毁完成")
         self.model_loaded = False
     
     def __enter__(self):
@@ -463,9 +473,9 @@ class MultithreadInference:
             worker = Inference(config)
             if worker.init():
                 self.workers.append(worker)
-                print(f"Worker {i} 初始化成功 (device: {device_id})")
+                logger.info(f"Worker {i} 初始化成功 (device: {device_id})")
             else:
-                print(f"Worker {i} 初始化失败")
+                logger.error(f"Worker {i} 初始化失败")
         
         return len(self.workers) > 0
     
@@ -488,7 +498,8 @@ class MultithreadInference:
             except queue.Empty:
                 time.sleep(0.01)
             except Exception as e:
-                print(f"Worker error: {e}")
+                logger.error(f"Worker error: {e}")
+                logger.debug(f"Worker: {worker}, task: {task if 'task' in locals() else 'unknown'}")
                 time.sleep(0.1)
     
     def start(self):
@@ -625,7 +636,7 @@ class HighResInference:
         if backend == 'opencv' and HAS_OPENCV:
             image = cv2.imread(image_path)
             if image is None:
-                print(f"无法读取图像：{image_path}")
+                logger.error(f"无法读取图像：{image_path}")
                 return None
             image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         else:
@@ -633,17 +644,18 @@ class HighResInference:
                 image = Image.open(image_path)
                 image = np.array(image)
             except Exception as e:
-                print(f"无法读取图像：{e}")
+                logger.error(f"无法读取图像：{e}")
+                logger.debug(f"图像路径：{image_path}")
                 return None
         
-        print(f"处理图像：{image_path}, 形状：{image.shape}")
+        logger.info(f"处理图像：{image_path}, 形状：{image.shape}")
         
         start_time = time.time()
         tiles, positions = split_image(image, self.tile_size, self.overlap)
-        print(f"分割完成：{len(tiles)} 个子块，耗时：{time.time() - start_time:.2f} 秒")
+        logger.debug(f"分割完成：{len(tiles)} 个子块，耗时：{time.time() - start_time:.2f} 秒")
         
         if not self.multithread.start():
-            print("无法启动推理")
+            logger.error("无法启动推理")
             return None
         
         for i, tile in enumerate(tiles):
@@ -666,7 +678,7 @@ class HighResInference:
                     "result": result.tolist()[:10]
                 })
         
-        print(f"推理完成：{len(merged_result['sub_results'])} 个子块成功")
+        logger.info(f"推理完成：{len(merged_result['sub_results'])}/{len(tiles)} 个子块成功")
         
         self.multithread.stop()
         return merged_result

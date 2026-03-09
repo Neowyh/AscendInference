@@ -4,11 +4,11 @@
 
 ## 项目特点
 
-- **精简代码**：从 2500+ 行减少到 800 行，消除所有冗余
-- **统一 API**：简洁的推理接口，支持多种模式
+- **统一入口**：所有功能通过 `main.py` 统一调用
+- **简洁命令**：`infer`、`check`、`enhance`、`package`、`config` 五大命令
+- **灵活配置**：JSON 配置文件 + 命令行参数覆盖
 - **高性能**：支持多线程和高分辨率图像分块推理
 - **易用性**：命令行工具和 Python API 两种使用方式
-- **灵活配置**：JSON 配置文件 + 命令行参数覆盖
 
 ## 快速开始
 
@@ -25,7 +25,23 @@ export ASCEND_HOME=/usr/local/Ascend
 export LD_LIBRARY_PATH=$ASCEND_HOME/ascend-toolkit/latest/lib64:$LD_LIBRARY_PATH
 ```
 
-### 使用命令行工具
+### 统一命令行入口
+
+```bash
+# 查看帮助
+python main.py --help
+
+# 查看子命令帮助
+python main.py infer --help
+python main.py check --help
+python main.py enhance --help
+python main.py package --help
+python main.py config --help
+```
+
+## 命令详解
+
+### 1. infer - 推理命令
 
 ```bash
 # 推理单张图片
@@ -34,17 +50,82 @@ python main.py infer test.jpg --model models/yolov8s.om
 # 使用配置文件
 python main.py infer test.jpg --config config/default.json
 
-# 性能测试（推理 10 次，统计平均时间和 FPS）
-python main.py infer test.jpg --iterations 10
-
 # 批量推理（输入为目录）
 python main.py infer ./images --output ./results
 
-# 多线程推理（每个 AI 核心 2 个线程）
+# 多线程推理
 python main.py infer test.jpg --mode multithread --threads-per-core 2
+
+# 高分辨率分块推理
+python main.py infer large.jpg --mode high_res
+
+# 性能基准测试
+python main.py infer test.jpg --benchmark --iterations 100
+
+# 多线程性能测试
+python main.py infer test.jpg --test-threads --thread-counts 1 2 4 8
+
+# 分辨率性能测试
+python main.py infer test.jpg --test-resolutions
 ```
 
-### 使用 Python API
+### 2. check - 环境检查
+
+```bash
+# 检查运行环境
+python main.py check
+```
+
+检查项目包括：
+- Python 版本
+- 依赖库
+- ACL 库
+- 配置模块
+- 模型文件
+- 推理模块
+- API 模块
+- 支持的分辨率
+
+### 3. enhance - 图像增强
+
+```bash
+# 增强单张图片到所有支持的分辨率
+python main.py enhance test.jpg --output ./enhanced
+
+# 指定分辨率
+python main.py enhance test.jpg --resolutions 640x640 1k 2k
+
+# 扩增多份
+python main.py enhance test.jpg --count 5
+
+# 使用 OpenCV 后端
+python main.py enhance test.jpg --backend opencv --interpolation bicubic
+```
+
+### 4. package - 项目打包
+
+```bash
+# 打包项目
+python main.py package
+
+# 指定输出路径
+python main.py package --output ./release.zip
+```
+
+### 5. config - 配置管理
+
+```bash
+# 显示当前配置
+python main.py config --show
+
+# 验证配置
+python main.py config --validate
+
+# 生成默认配置文件
+python main.py config --generate config/my_config.json
+```
+
+## Python API 使用
 
 ```python
 from config import Config
@@ -74,33 +155,18 @@ results = InferenceAPI.inference_batch(
 
 ## 推理模式
 
-- **base**: 标准推理，适合单张图片，统计各阶段时间
-- **multithread**: 多线程推理，适合批量处理，统计各阶段时间
-- **high_res**: 高分辨率分块推理，适合大图像
+| 模式 | 说明 | 适用场景 |
+|------|------|----------|
+| `base` | 标准推理 | 单张图片，需要详细时间统计 |
+| `multithread` | 多线程推理 | 批量处理，高性能吞吐 |
+| `high_res` | 高分辨率分块推理 | 大图像，超出模型输入尺寸 |
 
 ## 配置系统
 
-### 两层配置架构
+### 配置优先级
 
 ```
 命令行参数 > JSON 配置文件 > 代码默认值
-```
-
-### 使用方式
-
-#### 方式 1：仅使用 JSON 配置文件
-
-```bash
-python main.py infer test.jpg --config config/default.json
-```
-
-#### 方式 2：JSON 配置 + 命令行参数覆盖
-
-```bash
-python main.py infer test.jpg \
-    --config config/default.json \
-    --device 1 \
-    --resolution 1024x1024
 ```
 
 ### 完整配置项
@@ -123,29 +189,15 @@ python main.py infer test.jpg \
 }
 ```
 
-## 性能统计
+### AI 核心数配置
 
-运行推理时会自动统计各阶段时间：
+根据设备修改 `config/config.py` 中的 `MAX_AI_CORES`：
 
-```bash
-python main.py infer test.jpg --config config/default.json
-```
-
-**输出示例：**
-```
-推理配置:
-  模式：base
-  图像：test.jpg
-  模型：models/yolov8s.om
-  设备：0
-  分辨率：640x640
-
-时间统计:
-  预处理：0.0089 秒
-  模型推理：0.0052 秒
-  后处理：0.0015 秒
-  总时间：0.0156 秒
-```
+| 设备型号 | AI 核心数 | MAX_AI_CORES |
+|---------|----------|--------------|
+| 昇腾 310P | 4 | 4 |
+| 昇腾 310（双芯） | 8 | 8 |
+| 昇腾 910 | 32 | 32 |
 
 ## 项目结构
 
@@ -163,17 +215,15 @@ AscendInference/
 │   ├── __init__.py
 │   ├── acl_utils.py  # ACL 工具
 │   ├── profiler.py   # 性能分析
-│   └── logger.py     # 日志系统
-│   └── memory_pool.py # 内存池
-├── tools/            # 辅助工具
-│   ├── __init__.py
-│   ├── data_generator.py  # 数据生成
-│   └── image_enhancer.py  # 图像增强
+│   ├── logger.py     # 日志系统
+│   ├── memory_pool.py # 内存池
+│   └── exceptions.py  # 异常定义
+├── tools/            # 工具模块（已整合到 main.py）
+│   └── __init__.py
 ├── tests/            # 单元测试
 │   ├── __init__.py
-│   ├── test_config.py
-│   └── test_logger.py
-├── main.py           # CLI 入口
+│   └── test_all.py
+├── main.py           # 统一 CLI 入口
 ├── requirements.txt  # 依赖
 ├── pyproject.toml    # 项目配置
 └── README.md
@@ -181,10 +231,8 @@ AscendInference/
 
 ## 测试
 
-运行单元测试：
-
 ```bash
-pip install -r requirements-dev.txt
+pip install pytest
 pytest tests/ -v
 ```
 
@@ -197,41 +245,12 @@ pytest tests/ -v
 - PIL (Pillow)
 - 可选：OpenCV
 
-## 代码对比
-
-### 重构前
-
-- 2500+ 行代码
-- 5 个重复的推理类
-- 复杂的 Manager 封装
-- 冗余的配置文件
-- 分散的脚本入口
-
-### 重构后
-
-- 800 行代码（减少 68%）
-- 1 个统一的推理类
-- 简洁的工具函数
-- 单一配置文件
-- 统一的 CLI 入口
-
 ## 最佳实践
 
 1. **使用 JSON 文件管理配置** - 便于版本控制和复用
 2. **为不同场景创建配置文件** - 如性能、精度、分辨率等
 3. **命令行仅用于临时调整** - 测试不同参数时使用
-4. **查看时间统计优化性能** - 找出瓶颈所在阶段
-
-## 常见问题
-
-### Q: 配置文件不存在会怎样？
-A: 系统会打印警告信息并使用默认配置。
-
-### Q: 如何验证配置是否正确？
-A: 运行命令后会显示当前使用的配置信息。
-
-### Q: 如何查看各阶段耗时？
-A: 运行推理时会自动显示预处理、推理、后处理的时间统计。
+4. **使用 check 命令验证环境** - 部署前检查环境配置
 
 ## 许可证
 

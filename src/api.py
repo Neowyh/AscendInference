@@ -18,26 +18,10 @@ except ImportError:
 from config import Config
 
 try:
-    from utils.profiler import profile
+    from utils.profiler import profile_context
     HAS_PROFILER = True
 except ImportError:
     HAS_PROFILER = False
-
-
-def _profile_wrapper(name: str):
-    """简单的性能分析装饰器（当 profiler 不可用时）
-    
-    Args:
-        name: 性能分析名称
-        
-    Returns:
-        装饰器函数
-    """
-    def decorator(func):
-        def wrapper(*args, **kwargs):
-            return func(*args, **kwargs)
-        return wrapper
-    return decorator
 
 
 class InferenceAPI:
@@ -68,33 +52,32 @@ class InferenceAPI:
         
         config = config or Config()
         
-        if HAS_PROFILER:
-            from utils.profiler import profile
-            profile_decorator = profile(f"单张图片推理 ({mode})")
-        else:
-            profile_decorator = _profile_wrapper(f"单张图片推理 ({mode})")
+        if mode == 'high_res':
+            inference = HighResInference(config)
+            try:
+                with profile_context(f"单张图片推理 ({mode})") if HAS_PROFILER else None:
+                    return inference.process_image(image_path, config.backend)
+            finally:
+                inference.multithread.stop()
         
-        @profile_decorator
-        def _inference() -> Optional[np.ndarray]:
-            if mode == 'high_res':
-                inference = HighResInference(config)
-                return inference.process_image(image_path, config.backend)
-            
-            elif mode == 'multithread':
-                inference = MultithreadInference(config)
+        elif mode == 'multithread':
+            inference = MultithreadInference(config)
+            try:
                 if not inference.start():
                     raise Exception("无法启动推理")
-                inference.add_task(image_path, config.backend)
-                inference.wait_completion()
-                results = inference.get_results()
-                return results[0][1] if results else None
-            
-            else:
-                inference = Inference(config)
-                with inference:
-                    return inference.run_inference(image_path, config.backend)
+                with profile_context(f"单张图片推理 ({mode})") if HAS_PROFILER else None:
+                    inference.add_task(image_path, config.backend)
+                    inference.wait_completion()
+                    results = inference.get_results()
+                    return results[0][1] if results else None
+            finally:
+                inference.stop()
         
-        return _inference()
+        else:
+            inference = Inference(config)
+            with inference:
+                with profile_context(f"单张图片推理 ({mode})") if HAS_PROFILER else None:
+                    return inference.run_inference(image_path, config.backend)
     
     @staticmethod
     def inference_batch(
@@ -121,49 +104,42 @@ class InferenceAPI:
         
         config = config or Config()
         
-        if HAS_PROFILER:
-            from utils.profiler import profile
-            profile_decorator = profile(f"批量图片推理 ({mode})")
-        else:
-            profile_decorator = _profile_wrapper(f"批量图片推理 ({mode})")
+        results: List[Optional[np.ndarray]] = []
         
-        @profile_decorator
-        def _inference() -> List[Optional[np.ndarray]]:
-            results: List[Optional[np.ndarray]] = []
-            
-            if mode == 'high_res':
-                inference = HighResInference(config)
-                try:
+        if mode == 'high_res':
+            inference = HighResInference(config)
+            try:
+                with profile_context(f"批量图片推理 ({mode})") if HAS_PROFILER else None:
                     for image_path in image_paths:
                         result = inference.process_image(image_path, config.backend)
                         results.append(result)
-                finally:
-                    inference.multithread.stop()
-            
-            elif mode == 'multithread':
-                inference = MultithreadInference(config)
-                try:
-                    if not inference.start():
-                        raise Exception("无法启动推理")
+            finally:
+                inference.multithread.stop()
+        
+        elif mode == 'multithread':
+            inference = MultithreadInference(config)
+            try:
+                if not inference.start():
+                    raise Exception("无法启动推理")
+                with profile_context(f"批量图片推理 ({mode})") if HAS_PROFILER else None:
                     for image_path in image_paths:
                         inference.add_task(image_path, config.backend)
                     inference.wait_completion()
                     results_dict = dict(inference.get_results())
                     results = [results_dict.get(path) for path in image_paths]
-                finally:
-                    inference.stop()
-            
-            else:
-                inference = Inference(config)
-                try:
-                    if not inference.init():
-                        raise Exception("初始化失败")
+            finally:
+                inference.stop()
+        
+        else:
+            inference = Inference(config)
+            try:
+                if not inference.init():
+                    raise Exception("初始化失败")
+                with profile_context(f"批量图片推理 ({mode})") if HAS_PROFILER else None:
                     for image_path in image_paths:
                         result = inference.run_inference(image_path, config.backend)
                         results.append(result)
-                finally:
-                    inference.destroy()
-            
-            return results
+            finally:
+                inference.destroy()
         
-        return _inference()
+        return results

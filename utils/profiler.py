@@ -11,32 +11,46 @@ from functools import wraps
 from contextlib import contextmanager
 from typing import Callable, Any, Optional
 
+try:
+    from utils.logger import LoggerConfig
+    _default_logger = LoggerConfig.setup_logger('ascend_inference.profiler')
+except Exception:
+    _default_logger = None
+
 
 @contextmanager
-def profile(name: str = ""):
+def profile_context(name: str = "", logger=None):
     """性能分析上下文管理器
     
     Args:
         name: 性能分析名称
+        logger: 日志记录器，None 则使用默认 logger
         
     Yields:
         None
         
     Example:
-        with profile("预处理"):
+        with profile_context("预处理"):
             # 要测量的代码
     """
     start = time.time()
     yield
     elapsed = time.time() - start
-    print(f"[{name}] 耗时：{elapsed:.4f} 秒")
+    msg = f"[{name}] 耗时：{elapsed:.4f} 秒"
+    if logger:
+        logger.info(msg)
+    elif _default_logger:
+        _default_logger.info(msg)
+    else:
+        print(msg)
 
 
-def profile_decorator(name: Optional[str] = None) -> Callable:
+def profile_decorator(name: Optional[str] = None, logger=None) -> Callable:
     """性能分析装饰器
     
     Args:
         name: 性能分析名称，None 则使用函数名
+        logger: 日志记录器，None 则使用默认 logger
         
     Returns:
         装饰器函数
@@ -55,9 +69,29 @@ def profile_decorator(name: Optional[str] = None) -> Callable:
                 return func(*args, **kwargs)
             finally:
                 elapsed = time.time() - start
-                print(f"[{func_name}] 耗时：{elapsed:.4f} 秒")
+                msg = f"[{func_name}] 耗时：{elapsed:.4f} 秒"
+                if logger:
+                    logger.info(msg)
+                elif _default_logger:
+                    _default_logger.info(msg)
+                else:
+                    print(msg)
         return wrapper
     return decorator
 
 
-profile = profile_decorator
+def profile_func(name: Optional[str] = None, logger=None):
+    """性能分析装饰器（兼容性别名）
+    
+    Args:
+        name: 性能分析名称，None 则使用函数名
+        logger: 日志记录器，None 则使用默认 logger
+        
+    Returns:
+        装饰器函数
+    """
+    return profile_decorator(name, logger)
+
+
+# 为了兼容性，profile 可以作为上下文管理器或装饰器使用
+profile = profile_context
