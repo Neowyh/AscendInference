@@ -74,7 +74,7 @@ class PerformanceTester:
         self.config = config
         self.results: Dict[str, Any] = {}
     
-    def test_single(self, image_path: str, iterations: int = 100, warmup: bool = True) -> Dict:
+    def test_single(self, image_path: str, iterations: int = 100) -> Dict:
         """单次推理性能测试"""
         perf_logger.info(f"单次推理性能测试")
         perf_logger.info(f"  图像：{image_path}")
@@ -84,7 +84,7 @@ class PerformanceTester:
         inference = Inference(self.config)
         
         try:
-            if not inference.init(warmup=warmup, warmup_iterations=3):
+            if not inference.init():
                 perf_logger.error("初始化失败")
                 return {}
             
@@ -846,10 +846,6 @@ def cmd_config(args):
         print(f"  log_level: {config.log_level}")
         print(f"  enable_profiling: {config.enable_profiling}")
         
-        print(f"\n预热配置:")
-        print(f"  warmup: {config.warmup}")
-        print(f"  warmup_iterations: {config.warmup_iterations}")
-        
         print(f"\n系统配置:")
         print(f"  MAX_AI_CORES: {MAX_AI_CORES}")
         
@@ -971,7 +967,7 @@ def main():
     # infer 命令
     infer_parser = subparsers.add_parser('infer', help='推理（支持单张/批量/性能测试）')
     infer_parser.add_argument('input', help='输入图像路径或目录')
-    infer_parser.add_argument('--config', help='JSON 配置文件路径')
+    infer_parser.add_argument('--config', default='config/default.json', help='JSON 配置文件路径')
     infer_parser.add_argument('--model', help='模型路径')
     infer_parser.add_argument('--device', type=int, help='设备 ID')
     infer_parser.add_argument('--resolution', help='分辨率')
@@ -984,8 +980,6 @@ def main():
     infer_parser.add_argument('--test-threads', action='store_true', help='测试多线程性能')
     infer_parser.add_argument('--test-resolutions', action='store_true', help='测试分辨率影响')
     infer_parser.add_argument('--thread-counts', nargs='+', type=int, default=[1, 2, 4, 8], help='测试的线程数列表')
-    infer_parser.add_argument('--warmup', type=lambda x: x.lower() != 'false', default=None, help='是否启用模型预热 (true/false)')
-    infer_parser.add_argument('--warmup-iterations', type=int, default=None, help='预热迭代次数')
     infer_parser.set_defaults(func=cmd_infer)
     
     # check 命令

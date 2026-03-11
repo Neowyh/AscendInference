@@ -75,13 +75,9 @@ class Inference:
         self.initialized = False
         self.model_loaded = False
     
-    def init(self, warmup: bool = None, warmup_iterations: int = None):
+    def init(self):
         """初始化 ACL 和加载模型
         
-        Args:
-            warmup: 是否进行模型预热（None 则从 config 读取）
-            warmup_iterations: 预热迭代次数（None 则从 config 读取）
-            
         Returns:
             bool: 是否成功
         """
@@ -114,50 +110,9 @@ class Inference:
             self.destroy()
             return False
         
-        do_warmup = warmup if warmup is not None else self.config.warmup
-        iterations = warmup_iterations if warmup_iterations is not None else self.config.warmup_iterations
-        
-        if do_warmup and self.config.enable_logging:
-            logger.info(f"模型预热 ({iterations} 次)...")
-            self._warmup(iterations=iterations)
-            if self.config.enable_logging:
-                logger.info("模型预热完成")
-        
         return True
     
-    def _warmup(self, iterations: int = 3):
-        """模型预热
-        
-        Args:
-            iterations: 预热迭代次数
-        """
-        if not HAS_ACL:
-            return
-        
-        # 创建虚拟输入（全零数组）
-        dummy_input = np.zeros(
-            (self.input_height, self.input_width, 3),
-            dtype=np.float32
-        )
-        
-        for i in range(iterations):
-            # 预处理
-            if not self.preprocess(dummy_input, backend='numpy'):
-                logger.warning(f"预热第 {i+1} 次预处理失败")
-                continue
-            
-            # 执行推理
-            if not self.execute():
-                logger.warning(f"预热第 {i+1} 次推理失败")
-                continue
-            
-            # 获取结果
-            result = self.get_result()
-            if result is None:
-                logger.warning(f"预热第 {i+1} 次获取结果失败")
-                continue
-        
-        return True
+
     
     def _load_model(self):
         """加载模型"""
@@ -216,27 +171,18 @@ class Inference:
             PIL.Image.Image 或 numpy.ndarray: 图像数据（保持原始格式以便后续处理）
         """
         try:
-            if isinstance(image_data, str):
-                if not os.path.exists(image_data):
-                    logger.error(f"图像文件不存在：{image_data}")
-                    return None
-                
-                if backend == 'opencv' and HAS_OPENCV:
-                    image = cv2.imread(image_data)
-                    if image is None:
-                        logger.error(f"OpenCV 读取图像失败：{image_data}")
-                        return None
-                    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-                else:
-                    image = Image.open(image_data).convert('RGB')
-            elif isinstance(image_data, np.ndarray):
-                image = image_data
-            elif isinstance(image_data, Image.Image):
-                image = image_data
-            else:
-                logger.error(f"不支持的图像数据类型：{type(image_data)}")
+            if not os.path.exists(image_data):
+                logger.error(f"图像文件不存在：{image_data}")
                 return None
             
+            if backend == 'opencv' and HAS_OPENCV:
+                image = cv2.imread(image_data)
+                if image is None:
+                    logger.error(f"OpenCV 读取图像失败：{image_data}")
+                    return None
+                image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+            else:
+                image = Image.open(image_data).convert('RGB')
             return image
         except Exception as e:
             logger.error(f"读取图像异常：{e}")
@@ -255,17 +201,10 @@ class Inference:
         """
         try:
             if backend == 'opencv' and HAS_OPENCV:
-                if isinstance(image, Image.Image):
-                    image = np.array(image)
                 return cv2.resize(image, (self.input_width, self.input_height))
             else:
-                if isinstance(image, Image.Image):
-                    resized_image = image.resize((self.input_width, self.input_height))
-                    return np.array(resized_image)
-                else:
-                    pil_image = Image.fromarray(image)
-                    resized_image = pil_image.resize((self.input_width, self.input_height))
-                    return np.array(resized_image)
+                resized_image = image.resize((self.input_width, self.input_height))
+                return np.array(resized_image)
         except Exception as e:
             logger.error(f"调整图像大小异常：{e}")
             logger.debug(f"图像形状：{getattr(image, 'shape', 'N/A')}, 目标尺寸：({self.input_width}, {self.input_height})")
@@ -484,9 +423,7 @@ class MultithreadInference:
             config = Config(
                 model_path=self.model_path,
                 device_id=device_id,
-                resolution=self.resolution,
-                warmup=self.config.warmup,
-                warmup_iterations=self.config.warmup_iterations
+                resolution=self.resolution
             )
             worker = Inference(config)
             if worker.init():
@@ -634,9 +571,7 @@ class HighResInference:
             Config(
                 model_path=self.model_path,
                 num_threads=self.num_threads,
-                resolution=f"{self.tile_size[1]}x{self.tile_size[0]}",
-                warmup=self.config.warmup,
-                warmup_iterations=self.config.warmup_iterations
+                resolution=f"{self.tile_size[1]}x{self.tile_size[0]}"
             )
         )
     

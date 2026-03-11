@@ -11,7 +11,5 @@
   "max_detections": 100,
   "enable_logging": true,
   "log_level": "info",
-  "enable_profiling": false,
-  "warmup": true,
-  "warmup_iterations": 3
+  "enable_profiling": false
 }
