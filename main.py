@@ -55,6 +55,10 @@ def load_config(args) -> Config:
         overrides['backend'] = args.backend
     if hasattr(args, 'threads') and args.threads:
         overrides['num_threads'] = args.threads
+    if hasattr(args, 'warmup') and args.warmup is not None:
+        overrides['warmup'] = args.warmup
+    if hasattr(args, 'warmup_iterations') and args.warmup_iterations is not None:
+        overrides['warmup_iterations'] = args.warmup_iterations
     
     if overrides:
         config.apply_overrides(**overrides)
@@ -842,6 +846,10 @@ def cmd_config(args):
         print(f"  log_level: {config.log_level}")
         print(f"  enable_profiling: {config.enable_profiling}")
         
+        print(f"\n预热配置:")
+        print(f"  warmup: {config.warmup}")
+        print(f"  warmup_iterations: {config.warmup_iterations}")
+        
         print(f"\n系统配置:")
         print(f"  MAX_AI_CORES: {MAX_AI_CORES}")
         
@@ -909,7 +917,9 @@ def cmd_config(args):
             "max_detections": config.max_detections,
             "enable_logging": config.enable_logging,
             "log_level": config.log_level,
-            "enable_profiling": config.enable_profiling
+            "enable_profiling": config.enable_profiling,
+            "warmup": config.warmup,
+            "warmup_iterations": config.warmup_iterations
         }
         
         output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -974,6 +984,8 @@ def main():
     infer_parser.add_argument('--test-threads', action='store_true', help='测试多线程性能')
     infer_parser.add_argument('--test-resolutions', action='store_true', help='测试分辨率影响')
     infer_parser.add_argument('--thread-counts', nargs='+', type=int, default=[1, 2, 4, 8], help='测试的线程数列表')
+    infer_parser.add_argument('--warmup', type=lambda x: x.lower() != 'false', default=None, help='是否启用模型预热 (true/false)')
+    infer_parser.add_argument('--warmup-iterations', type=int, default=None, help='预热迭代次数')
     infer_parser.set_defaults(func=cmd_infer)
     
     # check 命令

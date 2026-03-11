@@ -75,12 +75,12 @@ class Inference:
         self.initialized = False
         self.model_loaded = False
     
-    def init(self, warmup: bool = True, warmup_iterations: int = 3):
+    def init(self, warmup: bool = None, warmup_iterations: int = None):
         """初始化 ACL 和加载模型
         
         Args:
-            warmup: 是否进行模型预热
-            warmup_iterations: 预热迭代次数
+            warmup: 是否进行模型预热（None 则从 config 读取）
+            warmup_iterations: 预热迭代次数（None 则从 config 读取）
             
         Returns:
             bool: 是否成功
@@ -114,10 +114,12 @@ class Inference:
             self.destroy()
             return False
         
-        # 模型预热
-        if warmup and self.config.enable_logging:
-            logger.info(f"模型预热 ({warmup_iterations} 次)...")
-            self._warmup(iterations=warmup_iterations)
+        do_warmup = warmup if warmup is not None else self.config.warmup
+        iterations = warmup_iterations if warmup_iterations is not None else self.config.warmup_iterations
+        
+        if do_warmup and self.config.enable_logging:
+            logger.info(f"模型预热 ({iterations} 次)...")
+            self._warmup(iterations=iterations)
             if self.config.enable_logging:
                 logger.info("模型预热完成")
         
@@ -211,7 +213,7 @@ class Inference:
             backend: 图像读取后端
             
         Returns:
-            numpy.ndarray: RGB 图像数组
+            PIL.Image.Image 或 numpy.ndarray: 图像数据（保持原始格式以便后续处理）
         """
         try:
             if isinstance(image_data, str):
@@ -227,11 +229,10 @@ class Inference:
                     image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
                 else:
                     image = Image.open(image_data).convert('RGB')
-                    image = np.array(image)
             elif isinstance(image_data, np.ndarray):
                 image = image_data
             elif isinstance(image_data, Image.Image):
-                image = np.array(image_data)
+                image = image_data
             else:
                 logger.error(f"不支持的图像数据类型：{type(image_data)}")
                 return None
@@ -243,16 +244,31 @@ class Inference:
             return None
     
     def _resize_image(self, image, backend='pil'):
-        """调整图像大小"""
+        """调整图像大小并转换为 numpy 数组
+        
+        Args:
+            image: PIL Image 或 numpy 数组
+            backend: 图像处理后端
+            
+        Returns:
+            numpy.ndarray: resize 后的 RGB 图像数组
+        """
         try:
             if backend == 'opencv' and HAS_OPENCV:
+                if isinstance(image, Image.Image):
+                    image = np.array(image)
                 return cv2.resize(image, (self.input_width, self.input_height))
             else:
-                image = Image.fromarray(image).resize((self.input_width, self.input_height))
-                return np.array(image)
+                if isinstance(image, Image.Image):
+                    resized_image = image.resize((self.input_width, self.input_height))
+                    return np.array(resized_image)
+                else:
+                    pil_image = Image.fromarray(image)
+                    resized_image = pil_image.resize((self.input_width, self.input_height))
+                    return np.array(resized_image)
         except Exception as e:
             logger.error(f"调整图像大小异常：{e}")
-            logger.debug(f"图像形状：{image.shape}, 目标尺寸：({self.input_width}, {self.input_height})")
+            logger.debug(f"图像形状：{getattr(image, 'shape', 'N/A')}, 目标尺寸：({self.input_width}, {self.input_height})")
             return None
     
     def preprocess(self, image_data, backend='pil'):
@@ -468,7 +484,9 @@ class MultithreadInference:
             config = Config(
                 model_path=self.model_path,
                 device_id=device_id,
-                resolution=self.resolution
+                resolution=self.resolution,
+                warmup=self.config.warmup,
+                warmup_iterations=self.config.warmup_iterations
             )
             worker = Inference(config)
             if worker.init():
@@ -616,7 +634,9 @@ class HighResInference:
             Config(
                 model_path=self.model_path,
                 num_threads=self.num_threads,
-                resolution=f"{self.tile_size[1]}x{self.tile_size[0]}"
+                resolution=f"{self.tile_size[1]}x{self.tile_size[0]}",
+                warmup=self.config.warmup,
+                warmup_iterations=self.config.warmup_iterations
             )
         )
     
@@ -641,17 +661,21 @@ class HighResInference:
             image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         else:
             try:
-                image = Image.open(image_path)
-                image = np.array(image)
+                image = Image.open(image_path).convert('RGB')
             except Exception as e:
                 logger.error(f"无法读取图像：{e}")
                 logger.debug(f"图像路径：{image_path}")
                 return None
         
-        logger.info(f"处理图像：{image_path}, 形状：{image.shape}")
+        if isinstance(image, Image.Image):
+            image_array = np.array(image)
+        else:
+            image_array = image
+        
+        logger.info(f"处理图像：{image_path}, 形状：{image_array.shape}")
         
         start_time = time.time()
-        tiles, positions = split_image(image, self.tile_size, self.overlap)
+        tiles, positions = split_image(image_array, self.tile_size, self.overlap)
         logger.debug(f"分割完成：{len(tiles)} 个子块，耗时：{time.time() - start_time:.2f} 秒")
         
         if not self.multithread.start():
@@ -666,7 +690,7 @@ class HighResInference:
         
         merged_result = {
             "sub_results": [],
-            "image_shape": image.shape,
+            "image_shape": image_array.shape,
             "num_tiles": len(tiles)
         }
         

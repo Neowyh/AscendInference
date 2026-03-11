@@ -67,6 +67,9 @@ class Config:
     log_level: str = "info"
     enable_profiling: bool = False
     
+    warmup: bool = True
+    warmup_iterations: int = 3
+    
     SUPPORTED_RESOLUTIONS = _SUPPORTED_RESOLUTIONS
     MAX_AI_CORES = _MAX_AI_CORES
     
