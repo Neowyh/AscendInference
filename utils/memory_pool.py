@@ -9,6 +9,8 @@
 from typing import Optional, List
 import threading
 
+from utils.validators import validate_positive_integer, validate_enum
+from utils.exceptions import InputValidationError
 
 try:
     from utils.acl_utils import malloc_device, free_device, malloc_host, free_host
@@ -28,12 +30,17 @@ class MemoryPool:
     
     def __init__(self, size: int, device: str = 'host', max_buffers: int = 10):
         """初始化内存池
-        
+
         Args:
             size: 每个缓冲区的大小（字节）
             device: 内存类型 ('host' 或 'device')
             max_buffers: 最大缓冲区数量
         """
+        # 验证参数
+        validate_positive_integer(size, "size", min_val=1)
+        validate_enum(device, ["host", "device"], "device")
+        validate_positive_integer(max_buffers, "max_buffers", min_val=1)
+
         self.size = size
         self.device = device
         self.max_buffers = max_buffers
@@ -137,31 +144,45 @@ class MultiSizeMemoryPool:
     
     def __init__(self, sizes: List[int], device: str = 'host'):
         """初始化多尺寸内存池
-        
+
         Args:
             sizes: 支持的内存尺寸列表
             device: 内存类型
         """
+        # 验证参数
+        validate_enum(device, ["host", "device"], "device")
+        if not sizes:
+            raise InputValidationError(
+                "内存尺寸列表不能为空",
+                error_code=3060,
+                details={"sizes": sizes}
+            )
+        for size in sizes:
+            validate_positive_integer(size, "size", min_val=1)
+
         self.device = device
         self.pools = {}
-        
+
         for size in sizes:
             self.pools[size] = MemoryPool(size, device)
     
     def allocate(self, size: int) -> Optional[int]:
         """分配指定大小的内存
-        
+
         Args:
             size: 需要的内存大小
-            
+
         Returns:
             内存缓冲区指针
         """
+        # 验证参数
+        validate_positive_integer(size, "size", min_val=1)
+
         # 找到第一个大于等于请求尺寸的池
         for pool_size in sorted(self.pools.keys()):
             if pool_size >= size:
                 return self.pools[pool_size].allocate()
-        
+
         # 没有合适的池，返回 None
         return None
     

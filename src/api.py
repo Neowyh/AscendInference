@@ -16,6 +16,8 @@ except ImportError:
     HAS_INFERENCE = False
 
 from config import Config
+from utils.validators import validate_inference_mode, validate_file_path
+from utils.exceptions import InputValidationError
 
 try:
     from utils.profiler import profile_context
@@ -29,27 +31,31 @@ class InferenceAPI:
     
     @staticmethod
     def inference_image(
-        mode: str, 
-        image_path: str, 
+        mode: str,
+        image_path: str,
         config: Optional[Config] = None
     ) -> Optional[np.ndarray]:
         """推理单张图片
-        
+
         Args:
             mode: 推理模式 ('base', 'multithread', 'high_res')
             image_path: 图片路径
             config: Config 实例，None 则使用默认配置
-            
+
         Returns:
-            推理结果 numpy 数组，失败返回 None
-            
+            推理结果结果 numpy 数组，失败返回 None
+
         Raises:
             ImportError: 推理模块不可用时
             Exception: 推理过程中出现错误
         """
+        # 验证参数
+        validate_inference_mode(mode)
+        validate_file_path(image_path, must_exist=True)
+
         if not HAS_INFERENCE:
             raise ImportError("推理模块不可用")
-        
+
         config = config or Config()
         
         if mode == 'high_res':
@@ -81,27 +87,34 @@ class InferenceAPI:
     
     @staticmethod
     def inference_batch(
-        mode: str, 
-        image_paths: List[str], 
+        mode: str,
+        image_paths: List[str],
         config: Optional[Config] = None
     ) -> List[Optional[np.ndarray]]:
         """批量推理图片（循环单张推理）
-        
+
         Args:
             mode: 推理模式
             image_paths: 图片路径列表
             config: Config 实例，None 则使用默认配置
-            
+
         Returns:
             推理结果列表，失败项为 None
-            
+
         Raises:
             ImportError: 推理模块不可用时
             Exception: 推理过程中出现错误
         """
+        # 验证参数
+        validate_inference_mode(mode)
+        from utils.validators import validate_positive_integer
+        validate_positive_integer(len(image_paths), "image_paths length", min_val=1)
+        for image_path in image_paths:
+            validate_file_path(image_path, must_exist=True)
+
         if not HAS_INFERENCE:
             raise ImportError("推理模块不可用")
-        
+
         config = config or Config()
         
         results: List[Optional[np.ndarray]] = []

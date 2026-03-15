@@ -6,12 +6,17 @@ ACL 工具函数
 提供简化的 ACL 初始化、模型加载和内存管理功能
 """
 
+from typing import Optional, Tuple, Any, Union
+
 try:
     import acl
     HAS_ACL = True
 except ImportError:
     HAS_ACL = False
     acl = None
+
+from utils.validators import validate_positive_integer
+from utils.exceptions import InputValidationError
 
 ACL_MEM_MALLOC_HUGE_FIRST = 0
 ACL_MEM_MALLOC_HUGE_ONLY = 1
@@ -29,12 +34,12 @@ except Exception:
     logger = logging.getLogger('ascend_inference.acl_utils')
 
 
-def init_acl(device_id=0):
+def init_acl(device_id: int = 0) -> Tuple[Optional[Any], Optional[Any]]:
     """初始化 ACL 并设置设备
-    
+
     Args:
         device_id: 设备 ID
-        
+
     Returns:
         tuple: (context, stream) 成功返回上下文和流，失败返回 (None, None)
     """
@@ -67,14 +72,14 @@ def init_acl(device_id=0):
     return context, stream
 
 
-def destroy_acl(context, stream, device_id):
+def destroy_acl(context: Optional[Any], stream: Optional[Any], device_id: int) -> bool:
     """销毁 ACL 资源
-    
+
     Args:
         context: 上下文
         stream: 流
         device_id: 设备 ID
-        
+
     Returns:
         bool: 是否成功
     """
@@ -99,19 +104,23 @@ def destroy_acl(context, stream, device_id):
         return False
 
 
-def load_model(model_path):
+def load_model(model_path: str) -> Tuple[Optional[Any], Optional[Any], int, int]:
     """加载模型
-    
+
     Args:
         model_path: 模型文件路径
-        
+
     Returns:
-        tuple: (model_id, model_desc, input_size, output_size) 
+        tuple: (model_id, model_desc, input_size, output_size)
                成功返回模型信息，失败返回 (None, None, 0, 0)
     """
     if not HAS_ACL:
         return None, None, 0, 0
-    
+
+    # 验证参数
+    from utils.validators import validate_file_path
+    validate_file_path(model_path, must_exist=True, allowed_extensions=[".om"])
+
     model_id, ret = acl.mdl.load_from_file(model_path)
     if ret != 0:
         return None, None, 0, 0
@@ -139,13 +148,13 @@ def load_model(model_path):
     return model_id, model_desc, input_size, output_size
 
 
-def unload_model(model_id, model_desc):
+def unload_model(model_id: Optional[Any], model_desc: Optional[Any]) -> bool:
     """卸载模型
-    
+
     Args:
         model_id: 模型 ID
         model_desc: 模型描述
-        
+
     Returns:
         bool: 是否成功
     """
@@ -169,45 +178,51 @@ def unload_model(model_id, model_desc):
         return False
 
 
-def malloc_device(size):
+def malloc_device(size: int) -> Optional[Any]:
     """分配设备内存
-    
+
     Args:
         size: 内存大小
-        
+
     Returns:
         设备内存指针，失败返回 None
     """
     if not HAS_ACL:
         return None
-    
+
+    # 验证参数
+    validate_positive_integer(size, "size", min_val=1)
+
     buffer, ret = acl.rt.malloc(size, ACL_MEM_MALLOC_HUGE_FIRST)
     if ret != 0:
         return None
     return buffer
 
 
-def malloc_host(size):
+def malloc_host(size: int) -> Optional[Any]:
     """分配主机内存
-    
+
     Args:
         size: 内存大小
-        
+
     Returns:
         主机内存指针，失败返回 None
     """
     if not HAS_ACL:
         return None
-    
+
+    # 验证参数
+    validate_positive_integer(size, "size", min_val=1)
+
     buffer, ret = acl.rt.malloc_host(size)
     if ret != 0:
         return None
     return buffer
 
 
-def free_device(buffer):
+def free_device(buffer: Optional[Any]) -> None:
     """释放设备内存
-    
+
     Args:
         buffer: 设备内存指针
     """
@@ -218,9 +233,9 @@ def free_device(buffer):
         acl.rt.free(buffer)
 
 
-def free_host(buffer):
+def free_host(buffer: Optional[Any]) -> None:
     """释放主机内存
-    
+
     Args:
         buffer: 主机内存指针
     """
@@ -231,14 +246,14 @@ def free_host(buffer):
         acl.rt.free_host(buffer)
 
 
-def create_dataset(buffer, size, dataset_name=""):
+def create_dataset(buffer: Optional[Any], size: int, dataset_name: str = "") -> Optional[Any]:
     """创建数据集
-    
+
     Args:
         buffer: 数据缓冲区指针
         size: 数据大小
         dataset_name: 数据集名称（用于调试）
-        
+
     Returns:
         dataset: 数据集对象，失败返回 None
     """
@@ -284,13 +299,13 @@ def create_dataset(buffer, size, dataset_name=""):
         return None
 
 
-def destroy_dataset(dataset, context=None):
+def destroy_dataset(dataset: Optional[Any], context: Optional[Any] = None) -> bool:
     """销毁数据集
-    
+
     Args:
         dataset: 数据集对象
         context: 可选的上下文，如果提供则先设置上下文
-        
+
     Returns:
         bool: 是否成功
     """
@@ -317,9 +332,9 @@ def destroy_dataset(dataset, context=None):
         return False
 
 
-def get_last_error_msg():
+def get_last_error_msg() -> str:
     """获取最近的错误信息
-    
+
     Returns:
         str: 错误信息
     """
