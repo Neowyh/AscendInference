@@ -339,9 +339,88 @@ def get_last_error_msg() -> str:
         str: 错误信息
     """
     if not HAS_ACL:
-        return "ACL 库不可用"
-    
+        return "ACL �不可用"
+
     try:
         return acl.get_recent_err_msg()
     except:
         return "无法获取错误信息"
+
+
+def get_model_input_info(model_desc: Any, input_index: int = 0) -> Tuple[int, int, int, int, str, int]:
+    """获取模型输入的详细信息
+
+    Args:
+        model_desc: 模型描述符
+        input_index: 输入索引，默认为0
+
+    Returns:
+        tuple: (batch, channels, height, width, data_type_str, bytes_per_element)
+               例如: (1, 3, 640, 640, 'float32', 4)
+
+    Raises:
+        ACLError: ACL调用失败时抛出
+    """
+    if not HAS_ACL:
+        raise ACLError("ACL 库不可用", error_code=2108)
+
+    try:
+        # 获取维度数量
+        num_dims = acl.mdl.get_input_num_dims(model_desc, input_index)
+        if num_dims < 4:
+            raise ACLError(
+                f"模型输入维度数量({num_dims})不符合预期(>=4)",
+                error_code=2109,
+                details={"num_dims": num_dims}
+            )
+
+        # 获取维度信息
+        dims = acl.mdl.get_input_dims(model_desc, input_index)
+
+        # 解析维度 (通常为 NCHW 格式)
+        batch = dims[0]
+        channels = dims[1]
+        height = dims[2]
+        width = dims[3]
+
+        # 获取数据类型
+        data_type = acl.mdl.get_input_data_type(model_desc, input_index)
+        data_type_str, bytes_per_element = _parse_acl_data_type(data_type)
+
+        return batch, channels, height, width, data_type_str, bytes_per_element
+
+    except Exception as e:
+        if isinstance(e, ACLError):
+            raise e
+        raise ACLError(
+            f"获取模型输入信息失败",
+            error_code=2110,
+            original_error=e,
+            details={"input_index": input_index}
+        ) from e
+
+
+def _parse_acl_data_type(data_type: int) -> Tuple[str, int]:
+    """解析 ACL 数据类型
+
+    Args:
+        data_type: ACL 数据类型枚举值
+
+    Returns:
+        tuple: (类型字符串, 每元素字节数)
+    """
+    # ACL 数据类型枚举 (参考 ACL API 文档)
+    type_map = {
+        0: ('float32', 4),
+        1: ('float16', 2),
+        2: ('int8', 1),
+        3: ('uint8', 1),
+        4: ('int16', 2),
+        5: ('uint16', 2),
+        6: ('int32', 4),
+        7: ('uint32', 4),
+        8: ('int64', 8),
+        9: ('uint64', 8),
+        10: ('bool', 1),
+    }
+    return type_map.get(data_type, ('unknown', 1))

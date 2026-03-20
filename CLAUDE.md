@@ -1,140 +1,247 @@
-# AscendInference 项目上下文
+# CLAUDE.md
 
-## 项目概述
-昇腾 AscendCL 模型推理工具，提供高性能的模型推理能力，支持单线程、多线程、高分辨率、批处理和流水线并行推理。
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## 核心架构
+## Project Overview
 
-### 模块职责
-- **commands/**: 命令行入口实现（infer/check/enhance/package/config）
-- **src/inference.py**: 核心推理类（Inference/MultithreadInference/PipelineInference/HighResInference）
-- **src/api.py**: 统一 API 层
-- **config/config.py**: 配置管理
-- **utils/**: 工具函数（acl_utils/validators/memory_pool/logger/exceptions/profiler）
+AscendCL model inference tool for Huawei Ascend AI processors, providing high-performance inference with single-thread, multi-thread, high-resolution, batch processing, and pipeline parallel modes.
 
-### 性能优化特性
-1. **内存池复用**: MemoryPool 类实现，减少预处理阶段内存分配开销
-2. **OpenCV 优化**: 默认使用 OpenCV 进行图像预处理，速度提升 30%+
-3. **工作窃取多线程**: MultithreadInference 实现负载均衡
-4. **批处理推理**: Inference 类支持 batch_size 参数
-5. **流水线并行**: PipelineInference 实现预处理/推理/后处理三阶段重叠
-6. **高分辨率分块**: split_image 函数带权重融合消除边缘效应
+## Common Commands
 
-### 异常体系
-所有异常继承自 InferenceError 基类，包含：
-- error_code: 错误码
-- original_error: 原始异常
-- details: 详细上下文字典
-
-错误码范围：
-- 2xxx: ACL/设备错误
-- 3xxx: 输入验证错误
-- 4xxx: 其他错误
-
-### 参数验证
-所有公共 API 通过 utils/validators.py 进行参数验证，包括：
-- 路径安全验证（防止路径遍历）
-- 数值范围验证
-- 枚举值验证
-- 业务参数验证（分辨率、设备ID、批大小等）
-
-## 关键文件位置
-
-### 推理核心
-- [src/inference.py](src/inference.py): 所有推理类实现
-- [src/api.py](src/api.py): InferenceAPI 统一接口
-
-### ACL 交互
-- [utils/acl_utils.py](utils/acl_utils.py): ACL 初始化、模型加载、内存管理
-
-### 配置
-- [config/config.py](config/config.py): Config 类和默认配置
-- [config/default.json](config/default.json): JSON 默认配置
-
-### 工具
-- [utils/validators.py](utils/validators.py): 参数验证
-- [utils/memory_pool.py](utils/memory_pool.py): 内存内存池
-- [utils/logger.py](utils/logger.py): 结构化日志
-- [utils/exceptions.py](utils/exceptions.py): 异常定义
-
-## 常用开发任务
-
-### 添加新的推理模式
-1. 在 src/inference.py 中创建新的推理类
-2. 在 src/api.py 的 InferenceAPI 中添加模式分支
-3. 在 utils/validators.py 中添加模式验证
-4. 在 README.md 中更新文档
-
-### 修改 ACL 交互
-- 修改 utils/acl_utils.py 中的函数
-- 确保调用前检查 HAS_ACL 标志
-- 使用 ACLError 抛出异常并记录 error_code
-
-### 添加新的配置项
-1. 在 config/config.py 的 Config 类中添加属性
-2. 在 config/default.json 中添加默认值
-3. 如需验证，在 utils/validators.py 中添加对应验证函数
-
-### 调试内存问题
-- 启用调试模式日志: `Logger.log_with_context(logger, "debug", message, ...)`
-- 检查资源泄漏: 查看析构函数警告日志
-- 使用内存池: MemoryPool 类自动复用内存
-
-## 重要设计决策
-
-### 为什么使用 OpenCV 作为默认后端
-OpenCV 的图像处理速度比 PIL 快 30%+，特别是在 resize 和颜色转换操作上。在推理密集场景下性能差异明显。
-
-### 为什么需要内存池
-每次预处理都需要分配主机内存，频繁分配/释放导致性能下降。内存池预分配缓冲区并复用，减少系统调用开销。
-
-### 为什么使用工作窃取算法
-简单轮询分配在图像处理时间不均匀时会导致负载失衡。工作窃取让空闲 worker 从其他队列偷取任务，实现动态负载均衡。
-
-### 为什么使用流水线并行
-传统串行执行：预处理 → 推理 → 后处理
-流水线并行：三个阶段同时处理不同批次的图像，CPU 预处理和 NPU 推理完全重叠。
-
-## 测试和调试
-
-### 运行单元测试
+### Running Tests
 ```bash
 pytest tests/ -v
 ```
 
-### 验证日志功能
-```bash
-python test_logger.py
-```
-
-### 检查运行环境
+### Environment Check
 ```bash
 python main.py check
 ```
 
-### 调试模式
-在代码中使用结构化日志：
+### Inference
+```bash
+# Single image inference
+python main.py infer test.jpg --model models/yolov8s.om
+
+# Use config file
+
+python main.py infer test.jpg --config config/default.json
+
+# Batch inference (input is directory)
+python main.py infer ./images --output ./results
+
+# Multithread inference
+python main.py infer test.jpg --mode multithread --threads-per-core 2
+
+# High-resolution tile-based inference
+python main.py infer large.jpg --mode high_res
+
+# Performance benchmark
+python main.py infer test.jpg --benchmark --iterations 100
+
+# Multi-thread performance test
+python main.py infer test.jpg --test-threads --thread-counts 1 2 4 8
+```
+
+### Configuration Management
+```bash
+# Show current config
+python main.py config --show
+
+# Validate config
+python main.py config --validate
+
+# Generate default config
+python main.py config --generate config/my_config.json
+```
+
+### Image Enhancement
+```bash
+python main.py enhance test.jpg --output ./enhanced --resolutions 640x640 1k 2k
+```
+
+## Core Architecture
+
+### Module Responsibilities
+- **commands/**: CLI command implementations (infer/check/enhance/package/config)
+- **src/inference.py**: Core inference classes (Inference/MultithreadInference/PipelineInference/HighResInference)
+- **src/api.py**: Unified API layer (InferenceAPI)
+- **config/config.py**: Configuration management
+- **utils/acl_utils.py**: ACL initialization, model loading, memory management
+- **utils/validators.py**: Parameter validation with security checks
+- **utils/exceptions.py**: Hierarchical exception system
+- **utils/logger.py**: Structured logging with text/JSON support
+- **utils/memory_pool.py**: Memory pool for buffer reuse
+- **utils/profiler.py**: Performance profiling
+
+### Inference Modes
+| Mode | Class | Use Case |
+|------|-------|----------|
+| base | Inference | Single image with detailed timing |
+| multithread | MultithreadInference | Batch processing with work-stealing load balancing |
+| high_res | HighResInference | Large images split into tiles with weighted blending |
+| pipeline | PipelineInference | High throughput with preprocess/infer/postprocess overlap |
+
+### Performance Optimizations
+1. **Memory Pool**: Pre-allocated buffers reused across inference runs (15%+ improvement)
+2. **OpenCV Backend**: 30-50% faster image preprocessing than PIL
+3. **Work-Stealing Multithreading**: Dynamic load balancing (20%+ improvement)
+4. **Batch Processing**: Batch size 2-8 for maximum NPU utilization (200-300% improvement)
+5. **Pipeline Parallelism**: CPU/NPU overlap (30%+ improvement)
+
+## Exception System
+
+All exceptions inherit from `InferenceError` base class with:
+- `error_code`: Integer error code
+- `original_error`: Original exception if wrapped
+- `details`: Dictionary with contextual information
+
+### Error Code Ranges
+- **2000-2099**: ACL/device errors (initialization, model load, memory)
+- **2100-2199**: Model-related errors
+- **2200-2299**: Preprocessing errors
+- **2300-2399**: ACL execution errors
+- **2400-2499**: Inference execution errors
+- **2500-2599**: Postprocessing errors
+- **3000-3099**: Input validation errors
+- **4000+**: Other errors
+
+### Exception Types
+- `ACLError`: ACL operation failures (includes `acl_ret` in details)
+- `ModelLoadError`: Model loading failures
+- `DeviceError`: Device initialization failures
+- `PreprocessError`: Image preprocessing failures
+- `PostprocessError`: Result postprocessing failures
+- `MemoryError`: Memory allocation/free failures
+- `InputValidationError`: Parameter validation failures
+- `ThreadError`: Multithreading operation failures
+
+### Best Practices for Exceptions
+- Always use specific exception types (e.g., `ModelLoadError` not `InferenceError`)
+- Provide `error_code` from appropriate range
+- Include `details` with relevant context
+- Preserve `original_error` when wrapping exceptions
+
+## Parameter Validation
+
+All public APIs use `utils/validators.py` for validation:
+- Path security validation (prevents directory traversal)
+- Numeric range validation
+- Enum validation (backends, modes, resolutions)
+- Business parameter validation (resolution, device_id, batch_size)
+
+### Security
+Paths are validated against current working directory to prevent traversal attacks. Use `validate_file_path()` with `must_exist=True` and `allowed_extensions` for model files.
+
+## Configuration System
+
+Three-tier priority:
+```
+Command line arguments > JSON config file > Code defaults
+```
+
+### Adding New Configuration Items
+1. Add field to `Config` dataclass in [config/config.py](config/config.py)
+2. Add default value in [config/default.json](config/default.json)
+3. Add validation in [utils/validators.py](utils/validators.py) if needed
+
+### AI Core Configuration
+Modify `MAX_AI_CORES` in [config/config.py](config/config.py):
+- Ascend 310P: 4
+- Ascend 310 (dual-core): 8
+- Ascend 910: 32
+
+## ACL Interaction
+
+### Important Guidelines
+1. Check `HAS_ACL` flag before any ACL operations
+2. Use `ACLError` for ACL failures with `acl_ret` parameter
+3. Call `acl.rt.set_context(context)` in worker threads
+4. Always clean up resources in `destroy()` methods
+5. Use context managers (`with inference:`) for automatic cleanup
+
+### Memory Management
+- Use `malloc_device()`/`malloc_host()` from [utils/acl_utils.py](utils/acl_utils.py)
+- Prefer `MemoryPool` class for frequently allocated buffers
+- Always pair allocation with corresponding `free_device()`/`free_host()`
+
+## Logging
+
+Use structured logging for production environments:
+
 ```python
 from utils.logger import LoggerConfig
-LoggerConfig.log_with_context(logger, "info", "推理完成",
+
+# Setup logger (JSON format recommended for production)
+logger = LoggerConfig.setup_logger(
+    name="my_app",
+    level="info",
+    log_file="app.log",
+    format_type="json",  # or "text"
+    sample_rate=0.1      # Sample rate, ERROR always outputs
+)
+
+# Log with context
+LoggerConfig.log_with_context(logger, "info", "Inference completed",
     image_path="test.jpg",
     inference_time=0.012,
     status="success"
 )
 ```
 
-## 约束和限制
-- 仅支持昇腾设备，不可在其他 GPU 上运行
-- 需要安装 ACL 库
-- 模型格式必须为 .om（昇腾模型格式）
-- 单次推理的图像数量受限于 batch_size 和可用 NPU 内存
+## Adding New Inference Modes
 
-## 依赖关系
+1. Create new inference class in [src/inference.py](src/inference.py)
+2. Add mode option to argparse in [main.py](main.py)
+3. Add mode branch in [src/api.py](src/api.py) `InferenceAPI.inference_image()`
+4. Add mode validation in [utils/validators.py](utils/validators.py)
+5. Update README.md
+
+## Resource Management
+
+### Critical Pattern
+Always use context managers or explicit cleanup:
+
+```python
+# Good: Context manager
+with inference:
+    result = inference.run_inference(image_path)
+
+# Good: Explicit cleanup
+infer = Inference(config)
+infer.init()
+try:
+    result = infer.run_inference(image_path)
+finally:
+    infer.destroy()
+
+# Bad: May leak resources
+infer = Inference(config)
+infer.init()
+result = infer.run_inference(image_path)
 ```
-src/api.py → src/inference.py → utils/acl_utils.py
-                         → utils/memory_pool.py
-                         → utils/logger.py
-                         → utils/exceptions.py
-                         → utils/validators.py
-config/config.py → validators.py
-```
+
+### Leak Detection
+The `__del__` methods in inference classes log warnings when resources are not properly released.
+
+## Design Decisions
+
+### Why OpenCV as default backend
+OpenCV image processing is 30%+ faster than PIL, especially for resize and color conversion operations.
+
+### Why memory pool
+Each preprocessing step allocates host memory. Frequent allocation/deallocation hurts performance. Memory pool pre-allocates and reuses buffers.
+
+### Why work-stealing algorithm
+Simple round-robin allocation causes imbalance when image processing times vary. Work-stealing lets idle workers steal tasks from other queues.
+
+### Why pipeline parallelism
+Traditional: preprocess → infer → postprocess
+Pipeline: Three stages process different batches simultaneously, CPU preprocess and NPU infer overlap completely.
+
+## Constraints
+- Only works on Ascend devices, not other GPUs
+- Requires ACL library installation
+- Model format must be .om (Ascend model format)
+- Inference throughput limited by batch_size and available NPU memory
+- Path validation prevents access outside working directory

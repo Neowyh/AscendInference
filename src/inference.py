@@ -213,6 +213,9 @@ class Inference:
         
         self.model_id, self.model_desc, self.input_size, self.output_size = result
 
+        # 一致性检查：验证配置分辨率与模型输入尺寸是否匹配
+        self._validate_model_input_consistency()
+
         # 计算批处理总大小
         self.batch_input_size = self.input_size * self.batch_size
         self.batch_output_size = self.output_size * self.batch_size
@@ -268,7 +271,89 @@ class Inference:
         self.model_loaded = True
         logger.info(f"模型加载成功：{self.model_path}")
         return True
-    
+
+    def _validate_model_input_consistency(self) -> None:
+        """验证配置分辨率与模型输入尺寸的一致性
+
+        Raises:
+            InputValidationError: 分辨率不匹配时抛出
+        """
+        if not HAS_ACL:
+            return
+
+        try:
+            from utils.acl_utils import get_model_input_info
+
+            # 获取模型输入信息
+            model_batch, model_channels, model_height, model_width, model_data_type, bytes_per_element = \
+                get_model_input_info(self.model_desc, 0)
+
+            # 计算预期的输入大小
+            expected_input_size = self.input_width * self.input_height * model_channels * bytes_per_element
+
+            # 检查大小是否匹配
+            if self.input_size != expected_input_size:
+                error_msg = "配置分辨率与模型输入尺寸不匹配"
+                logger.error(error_msg)
+                logger.error(f"配置: {self.input_width}x{self.input_height}, 模型: {model_width}x{model_height}")
+
+                raise InputValidationError(
+                    error_msg,
+                    error_code=3120,
+                    details={
+                        "config_resolution": self.resolution,
+                        "config_width": self.input_width,
+                        "config_height": self.input_height,
+                        "model_batch": model_batch,
+                        "model_channels": model_channels,
+                        "model_width": model_width,
+                        "model_height": model_height,
+                        "model_data_type": model_data_type,
+                        "bytes_per_element": bytes_per_element,
+                        "expected_input_size": expected_input_size,
+                        "actual_model_input_size": self.input_size,
+                        "calculation": f"{self.input_width} × {self.input_height} × {model_channels} × {bytes_per_element} = {expected_input_size}",
+                        "model_shape": f"NCHW({model_batch}, {model_channels}, {model_height}, {model_width})",
+                        "suggestion": f"请检查配置的 resolution 参数。模型期望输入为 {model_width}x{model_height} 的 {model_channels}-通道图像"
+                    }
+                )
+
+            # 检查具体的尺寸是否匹配（更严格的检查）
+            if self.input_width != model_width or self.input_height != model_height:
+                error_msg = "配置分辨率尺寸与模型输入尺寸不匹配"
+                logger.error(error_msg)
+                logger.error(f"配置: {self.input_width}x{self.input_height}, 模型: {model_width}x{model_height}")
+
+                raise InputValidationError(
+                    error_msg,
+                    error_code=3121,
+                    details={
+                        "config_resolution": self.resolution,
+                        "config_width": self.input_width,
+                        "config_height": self.input_height,
+                        "model_width": model_width,
+                        "model_height": model_height,
+                        "suggestion": f"请将 resolution 设置为 '{model_width}x{model_height}'"
+                    }
+                )
+
+            logger.info(
+                f"模型输入一致性检查通过: 配置({self.input_width}x{self.input_height}) "
+                f"== 模型({model_width}x{model_height}), 通道数={model_channels}, 数据类型={model_data_type}"
+            )
+
+        except InputValidationError:
+            raise
+        except Exception as e:
+            logger.error(f"一致性检查失败: {e}")
+            # 检查失败时抛出异常，强制用户解决问题
+            raise InputValidationError(
+                "无法验证模型输入一致性",
+                error_code=3122,
+                original_error=e,
+                details={"original_error": str(e)}
+            ) from e
+
     def _load_image(self, image_data: Union[str, np.ndarray, PILImage], backend: str = 'opencv') -> Union[PILImage, np.ndarray]:
         """加载图像
 
@@ -1250,7 +1335,7 @@ def split_image(image: np.ndarray, tile_size: Tuple[int, int], overlap: float) -
     Returns:
         tiles: 子块列表
         positions: 子块位置列表 (x1, y1, w, h)
-        weight_map: 权重矩阵，用于结果融合时消除重叠边缘效应
+         : 权重矩阵，用于结果融合时消除重叠边缘效应
     """
     h, w = image.shape[:2]
     tile_h, tile_w = tile_size
