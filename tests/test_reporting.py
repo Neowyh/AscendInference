@@ -47,3 +47,49 @@ def test_benchmark_result_uses_legacy_metrics_conversion_path():
     assert result.system_metrics["fps"]["e2e"] == 55.5
     assert result.execution_record.task_name == "model_selection"
     assert result.execution_record.model_name == "legacy_model"
+
+
+def test_benchmark_result_compat_views_follow_execution_record():
+    from benchmark.scenarios import BenchmarkResult, ModelInfo
+
+    result = BenchmarkResult(
+        scenario_name="model_selection",
+        model_info=ModelInfo(name="original", resolution="640x640"),
+        metrics={
+            "execute": {"avg": 12.0},
+            "fps": {"pure": 83.3, "e2e": 55.5},
+        },
+        config={"iterations": 100},
+        resource_stats={"cpu": {"avg": 50.0}},
+        timestamp=123.0,
+    )
+
+    result.execution_record.task_name = "updated"
+    result.execution_record.model_info.name = "updated_model"
+    result.execution_record.config["iterations"] = 200
+    result.execution_record.resource_stats["cpu"]["avg"] = 75.0
+    result.execution_record.timestamp = 456.0
+    result.execution_record.model_metrics["execute"]["avg"] = 15.0
+
+    assert result.scenario_name == "updated"
+    assert result.config["iterations"] == 200
+    assert result.resource_stats["cpu"]["avg"] == 75.0
+    assert result.timestamp == 456.0
+    assert result.model_info.name == "updated_model"
+    assert result.metrics["execute"]["avg"] == 15.0
+    assert result.metrics["fps"]["pure"] == 83.3
+
+
+def test_legacy_metrics_snapshot_does_not_persist_in_place_changes():
+    from benchmark.scenarios import BenchmarkResult, ModelInfo
+
+    result = BenchmarkResult(
+        scenario_name="model_selection",
+        model_info=ModelInfo(name="snapshot_model"),
+        metrics={"execute": {"avg": 12.0}, "fps": {"pure": 83.3}},
+    )
+
+    snapshot = result.metrics
+    snapshot["execute"]["avg"] = 99.0
+
+    assert result.metrics["execute"]["avg"] == 12.0

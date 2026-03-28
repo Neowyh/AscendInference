@@ -358,101 +358,108 @@ class BenchmarkResult:
         resource_stats: Optional[Dict[str, Any]] = None,
         timestamp: Optional[float] = None,
     ) -> None:
-        self.scenario_name = scenario_name
-        self.model_info = model_info or ModelInfo()
-        self.strategies = list(strategies or [])
-        self.config = dict(config or {})
-        self.resource_stats = dict(resource_stats or {})
-        self.timestamp = time.time() if timestamp is None else timestamp
+        model_info_obj = model_info
 
         if execution_record is None:
+            model_info_obj = model_info_obj or ModelInfo()
             if model_metrics is not None or system_metrics is not None:
                 execution_record = ExecutionRecord(
                     task_name=scenario_name,
                     route_type="",
-                    model_name=self.model_info.name,
+                    model_name=model_info_obj.name,
+                    model_info=model_info_obj,
                     model_metrics=dict(model_metrics or {}),
                     system_metrics=dict(system_metrics or {}),
-                    resource_stats=dict(self.resource_stats),
-                    config=dict(self.config),
-                    strategies=list(self.strategies),
-                    timestamp=self.timestamp,
+                    resource_stats=dict(resource_stats or {}),
+                    config=dict(config or {}),
+                    strategies=list(strategies or []),
+                    timestamp=time.time() if timestamp is None else timestamp,
                 )
             else:
                 execution_record = ExecutionRecord.from_legacy_metrics(
                     metrics,
                     task_name=scenario_name,
                     route_type="",
-                    model_name=self.model_info.name,
-                    resource_stats=self.resource_stats,
-                    config=self.config,
-                    strategies=self.strategies,
-                    timestamp=self.timestamp,
+                    model_name=model_info_obj.name,
+                    model_info=model_info_obj,
+                    resource_stats=resource_stats,
+                    config=config,
+                    strategies=strategies,
+                    timestamp=timestamp,
                 )
         else:
-            if not execution_record.resource_stats and self.resource_stats:
-                execution_record.resource_stats = dict(self.resource_stats)
-            if not execution_record.config and self.config:
-                execution_record.config = dict(self.config)
-            if not execution_record.strategies and self.strategies:
-                execution_record.strategies = list(self.strategies)
-            if not execution_record.task_name:
-                execution_record.task_name = scenario_name
+            if model_info_obj is None:
+                model_info_obj = execution_record.model_info or ModelInfo(name=execution_record.model_name)
+            if execution_record.model_info is None:
+                execution_record.model_info = model_info_obj
             if not execution_record.model_name:
-                execution_record.model_name = self.model_info.name
+                execution_record.model_name = getattr(execution_record.model_info, "name", model_info_obj.name)
 
         self.execution_record = execution_record
-        self._legacy_metrics = self.execution_record.to_legacy_metrics()
+        self.scenario_name = scenario_name or self.execution_record.task_name
+        self.model_info = model_info_obj or self.execution_record.model_info or ModelInfo()
+        self.strategies = list(strategies if strategies is not None else self.execution_record.strategies)
+        self.config = dict(config if config is not None else self.execution_record.config)
+        self.resource_stats = dict(resource_stats if resource_stats is not None else self.execution_record.resource_stats)
+        self.timestamp = self.execution_record.timestamp if timestamp is None else timestamp
 
-    def __setattr__(self, name: str, value: Any) -> None:
-        object.__setattr__(self, name, value)
-
-        if name.startswith("_"):
-            return
-
+    @property
+    def scenario_name(self) -> str:
         execution_record = self.__dict__.get("execution_record")
-        if execution_record is None:
-            return
+        return execution_record.task_name if execution_record else self.__dict__.get("_scenario_name", "")
 
-        if name == "scenario_name":
+    @scenario_name.setter
+    def scenario_name(self, value: str) -> None:
+        execution_record = self.__dict__.get("execution_record")
+        if execution_record is not None:
             execution_record.task_name = value
-        elif name == "strategies":
-            execution_record.strategies = list(value or [])
-        elif name == "config":
-            execution_record.config = dict(value or {})
-        elif name == "resource_stats":
-            execution_record.resource_stats = dict(value or {})
-        elif name == "timestamp":
-            execution_record.timestamp = value
-        elif name == "model_info":
-            execution_record.model_name = getattr(value, "name", "")
+        object.__setattr__(self, "_scenario_name", value)
+
+    @property
+    def model_info(self) -> ModelInfo:
+        execution_record = self.__dict__.get("execution_record")
+        if execution_record and execution_record.model_info is not None:
+            return execution_record.model_info
+        return self.__dict__.get("_model_info", ModelInfo())
+
+    @model_info.setter
+    def model_info(self, value: Optional[ModelInfo]) -> None:
+        model_info = value or ModelInfo()
+        execution_record = self.__dict__.get("execution_record")
+        if execution_record is not None:
+            execution_record.model_info = model_info
+            execution_record.model_name = getattr(model_info, "name", "")
+        object.__setattr__(self, "_model_info", model_info)
 
     @property
     def model_metrics(self) -> Dict[str, Any]:
-        return self.execution_record.model_metrics
+        execution_record = self.__dict__.get("execution_record")
+        return execution_record.model_metrics if execution_record else {}
 
     @property
     def system_metrics(self) -> Dict[str, Any]:
-        return self.execution_record.system_metrics
+        execution_record = self.__dict__.get("execution_record")
+        return execution_record.system_metrics if execution_record else {}
 
     @property
     def metrics(self) -> Dict[str, Any]:
-        return self._legacy_metrics
+        execution_record = self.__dict__.get("execution_record")
+        return execution_record.to_legacy_metrics() if execution_record else {}
 
     @metrics.setter
     def metrics(self, value: Dict[str, Any]) -> None:
         value = dict(value or {})
-        self._legacy_metrics = value
-
         execution_record = self.__dict__.get("execution_record")
         if execution_record is None:
+            object.__setattr__(self, "_legacy_metrics", value)
             return
 
         synced_record = ExecutionRecord.from_legacy_metrics(
             value,
             task_name=self.scenario_name,
-            route_type=getattr(execution_record, "route_type", ""),
+            route_type=execution_record.route_type,
             model_name=self.model_info.name,
+            model_info=self.model_info,
             resource_stats=self.resource_stats,
             config=self.config,
             strategies=self.strategies,
@@ -460,12 +467,64 @@ class BenchmarkResult:
         )
         execution_record.model_metrics = synced_record.model_metrics
         execution_record.system_metrics = synced_record.system_metrics
-        execution_record.resource_stats = dict(self.resource_stats)
-        execution_record.config = dict(self.config)
-        execution_record.strategies = list(self.strategies)
-        execution_record.task_name = self.scenario_name
-        execution_record.model_name = self.model_info.name
-        execution_record.timestamp = self.timestamp
+        execution_record.model_info = synced_record.model_info
+        execution_record.model_name = getattr(synced_record.model_info, "name", self.model_info.name)
+        execution_record.resource_stats = synced_record.resource_stats
+        execution_record.config = synced_record.config
+        execution_record.strategies = synced_record.strategies
+        execution_record.task_name = synced_record.task_name
+        execution_record.timestamp = synced_record.timestamp
+
+    @property
+    def strategies(self) -> List[str]:
+        execution_record = self.__dict__.get("execution_record")
+        return execution_record.strategies if execution_record else self.__dict__.get("_strategies", [])
+
+    @strategies.setter
+    def strategies(self, value: Optional[List[str]]) -> None:
+        strategies = list(value or [])
+        execution_record = self.__dict__.get("execution_record")
+        if execution_record is not None:
+            execution_record.strategies = strategies
+        object.__setattr__(self, "_strategies", strategies)
+
+    @property
+    def config(self) -> Dict[str, Any]:
+        execution_record = self.__dict__.get("execution_record")
+        return execution_record.config if execution_record else self.__dict__.get("_config", {})
+
+    @config.setter
+    def config(self, value: Optional[Dict[str, Any]]) -> None:
+        config = dict(value or {})
+        execution_record = self.__dict__.get("execution_record")
+        if execution_record is not None:
+            execution_record.config = config
+        object.__setattr__(self, "_config", config)
+
+    @property
+    def resource_stats(self) -> Dict[str, Any]:
+        execution_record = self.__dict__.get("execution_record")
+        return execution_record.resource_stats if execution_record else self.__dict__.get("_resource_stats", {})
+
+    @resource_stats.setter
+    def resource_stats(self, value: Optional[Dict[str, Any]]) -> None:
+        resource_stats = dict(value or {})
+        execution_record = self.__dict__.get("execution_record")
+        if execution_record is not None:
+            execution_record.resource_stats = resource_stats
+        object.__setattr__(self, "_resource_stats", resource_stats)
+
+    @property
+    def timestamp(self) -> float:
+        execution_record = self.__dict__.get("execution_record")
+        return execution_record.timestamp if execution_record else self.__dict__.get("_timestamp", 0.0)
+
+    @timestamp.setter
+    def timestamp(self, value: float) -> None:
+        execution_record = self.__dict__.get("execution_record")
+        if execution_record is not None:
+            execution_record.timestamp = value
+        object.__setattr__(self, "_timestamp", value)
 
 
 class StrategyValidationScenario(BenchmarkScenario):

@@ -124,6 +124,30 @@ class TestBenchmarkResult:
         assert result.strategies == ["baseline"]
         assert result.execution_record.strategies == ["baseline"]
 
+    def test_execution_record_mutations_are_visible_through_compat_views(self):
+        result = BenchmarkResult(
+            scenario_name="initial",
+            model_info=ModelInfo(name="test_model", resolution="640x640"),
+            metrics={"execute": {"avg": 12.0}, "fps": {"pure": 100.0, "e2e": 80.0}},
+            config={"iterations": 10},
+            resource_stats={"cpu": {"avg": 20.0}},
+            timestamp=111.0,
+        )
+
+        result.execution_record.task_name = "updated"
+        result.execution_record.model_info.name = "updated_model"
+        result.execution_record.config["iterations"] = 20
+        result.execution_record.resource_stats["cpu"]["avg"] = 30.0
+        result.execution_record.timestamp = 222.0
+        result.execution_record.model_metrics["execute"]["avg"] = 15.0
+
+        assert result.scenario_name == "updated"
+        assert result.model_info.name == "updated_model"
+        assert result.config["iterations"] == 20
+        assert result.resource_stats["cpu"]["avg"] == 30.0
+        assert result.timestamp == 222.0
+        assert result.metrics["execute"]["avg"] == 15.0
+
 
 class TestModelSelectionScenario:
     """ModelSelectionScenario 类测试"""

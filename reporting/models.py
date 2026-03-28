@@ -7,6 +7,7 @@
 合并视图。
 """
 
+from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
 import time
@@ -14,13 +15,13 @@ import time
 
 def _deep_merge_dicts(left: Dict[str, Any], right: Dict[str, Any]) -> Dict[str, Any]:
     """递归合并两个字典，保留嵌套指标结构。"""
-    merged: Dict[str, Any] = dict(left)
+    merged: Dict[str, Any] = deepcopy(left)
     for key, value in right.items():
         existing = merged.get(key)
         if isinstance(existing, dict) and isinstance(value, dict):
             merged[key] = _deep_merge_dicts(existing, value)
         else:
-            merged[key] = value
+            merged[key] = deepcopy(value)
     return merged
 
 
@@ -83,6 +84,7 @@ class ExecutionRecord:
     task_name: str = ""
     route_type: str = ""
     model_name: str = ""
+    model_info: Any = None
     model_metrics: Dict[str, Any] = field(default_factory=dict)
     system_metrics: Dict[str, Any] = field(default_factory=dict)
     resource_stats: Dict[str, Any] = field(default_factory=dict)
@@ -102,6 +104,7 @@ class ExecutionRecord:
         task_name: str = "",
         route_type: str = "",
         model_name: str = "",
+        model_info: Any = None,
         resource_stats: Optional[Dict[str, Any]] = None,
         config: Optional[Dict[str, Any]] = None,
         strategies: Optional[list] = None,
@@ -114,6 +117,7 @@ class ExecutionRecord:
             task_name=task_name,
             route_type=route_type,
             model_name=model_name,
+            model_info=model_info,
             model_metrics=split_metrics["model_metrics"],
             system_metrics=split_metrics["system_metrics"],
             resource_stats=dict(resource_stats or {}),
