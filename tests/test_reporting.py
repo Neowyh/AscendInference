@@ -93,3 +93,18 @@ def test_legacy_metrics_snapshot_does_not_persist_in_place_changes():
     snapshot["execute"]["avg"] = 99.0
 
     assert result.metrics["execute"]["avg"] == 12.0
+
+
+def test_execution_record_model_name_keeps_model_info_in_sync():
+    from benchmark.scenarios import BenchmarkResult, ModelInfo
+
+    result = BenchmarkResult(
+        scenario_name="model_selection",
+        model_info=ModelInfo(name="snapshot_model"),
+        metrics={"execute": {"avg": 12.0}, "fps": {"pure": 83.3}},
+    )
+
+    result.execution_record.model_name = "renamed_model"
+
+    assert result.model_info.name == "renamed_model"
+    assert result.execution_record.model_info.name == "renamed_model"

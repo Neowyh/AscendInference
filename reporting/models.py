@@ -92,6 +92,18 @@ class ExecutionRecord:
     strategies: list = field(default_factory=list)
     timestamp: float = field(default_factory=time.time)
 
+    def __setattr__(self, name: str, value: Any) -> None:
+        object.__setattr__(self, name, value)
+
+        if name == "model_name":
+            model_info = self.__dict__.get("model_info")
+            if model_info is not None and hasattr(model_info, "name"):
+                object.__setattr__(model_info, "name", value)
+        elif name == "model_info":
+            model_info = value
+            if model_info is not None and hasattr(model_info, "name"):
+                object.__setattr__(self, "model_name", getattr(model_info, "name", ""))
+
     def to_legacy_metrics(self) -> Dict[str, Any]:
         """返回兼容旧代码的合并指标视图。"""
         return _deep_merge_dicts(self.model_metrics, self.system_metrics)
