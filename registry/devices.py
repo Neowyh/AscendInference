@@ -23,6 +23,8 @@ class DeviceProfile:
     metadata: Dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self):
+        if not isinstance(self.name, str) or not self.name.strip():
+            raise ValueError("DeviceProfile requires a non-empty name")
         self.supported_tiers = tuple(
             tier if isinstance(tier, InputTier) else InputTier.from_value(tier)
             for tier in self.supported_tiers
@@ -31,6 +33,10 @@ class DeviceProfile:
             route if isinstance(route, RouteType) else RouteType.from_value(route)
             for route in self.supported_routes
         )
+        if not self.supported_tiers:
+            raise ValueError("DeviceProfile requires at least one supported tier")
+        if not self.supported_routes:
+            raise ValueError("DeviceProfile requires at least one supported route")
 
     @classmethod
     def from_dict(cls, data):

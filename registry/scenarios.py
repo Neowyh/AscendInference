@@ -23,6 +23,10 @@ class ScenarioDefinition:
     metadata: Dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self):
+        if not isinstance(self.name, str) or not self.name.strip():
+            raise ValueError("ScenarioDefinition requires a non-empty name")
+        if not isinstance(self.model_name, str) or not self.model_name.strip():
+            raise ValueError("ScenarioDefinition requires a non-empty model_name")
         self.input_tier = InputTier.from_value(self.input_tier)
         self.route_type = RouteType.from_value(self.route_type)
 

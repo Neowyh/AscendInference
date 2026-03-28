@@ -142,6 +142,36 @@ def test_registry_rejects_duplicate_registration(register_name, item_factory):
 
 
 @pytest.mark.parametrize(
+    "kwargs",
+    [
+        {
+            "name": "",
+            "supported_tiers": (InputTier.TIER_720P,),
+            "supported_routes": (RouteType.TILED_ROUTE,),
+        },
+        {
+            "name": "edge-device",
+            "supported_tiers": [],
+            "supported_routes": (RouteType.TILED_ROUTE,),
+        },
+        {
+            "name": "edge-device",
+            "supported_tiers": (InputTier.TIER_720P,),
+            "supported_routes": [],
+        },
+        {
+            "name": "edge-device",
+            "supported_tiers": ("",),
+            "supported_routes": (RouteType.TILED_ROUTE,),
+        },
+    ],
+)
+def test_device_profile_direct_construction_rejects_invalid_values(kwargs):
+    with pytest.raises(ValueError):
+        DeviceProfile(**kwargs)
+
+
+@pytest.mark.parametrize(
     "payload",
     [
         {"name": "edge-device"},
@@ -165,6 +195,40 @@ def test_device_profile_from_dict_requires_required_fields(payload):
 def test_scenario_definition_from_dict_requires_required_fields(payload):
     with pytest.raises(ValueError):
         ScenarioDefinition.from_dict(payload)
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {
+            "name": "",
+            "model_name": "rs-yolo",
+            "input_tier": InputTier.TIER_720P,
+            "route_type": RouteType.TILED_ROUTE,
+        },
+        {
+            "name": "edge-scenario",
+            "model_name": "",
+            "input_tier": InputTier.TIER_720P,
+            "route_type": RouteType.TILED_ROUTE,
+        },
+        {
+            "name": "edge-scenario",
+            "model_name": "rs-yolo",
+            "input_tier": "",
+            "route_type": RouteType.TILED_ROUTE,
+        },
+        {
+            "name": "edge-scenario",
+            "model_name": "rs-yolo",
+            "input_tier": InputTier.TIER_720P,
+            "route_type": "",
+        },
+    ],
+)
+def test_scenario_definition_direct_construction_rejects_invalid_values(kwargs):
+    with pytest.raises(ValueError):
+        ScenarioDefinition(**kwargs)
 
 
 def test_registry_from_dict_rejects_invalid_device_payload():
