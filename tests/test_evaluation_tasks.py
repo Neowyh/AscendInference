@@ -109,6 +109,13 @@ def test_model_bench_parser_defaults_standard_input_tiers():
     assert args.input_tiers == list(STANDARD_INPUT_TIERS)
 
 
+def test_model_bench_parser_rejects_unknown_input_tier():
+    parser = create_parser()
+
+    with pytest.raises(SystemExit):
+        parser.parse_args(["model.om", "--images", "image.jpg", "--input-tiers", "6K"])
+
+
 def test_model_bench_run_preserves_input_tiers_in_scenario_config():
     args = Mock(
         models=["model.om"],

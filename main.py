@@ -116,7 +116,13 @@ def main():
     model_bench_parser.add_argument('--device', type=int, default=0, help='设备ID')
     model_bench_parser.add_argument('--backend', choices=['pil', 'opencv'], default='pil', help='图像处理后端')
     model_bench_parser.add_argument('--enable-monitoring', action='store_true', help='启用资源监控')
-    model_bench_parser.add_argument('--input-tiers', nargs='+', default=['720p', '1080p', '4K'], help='标准评测输入分档')
+    model_bench_parser.add_argument(
+        '--input-tiers',
+        nargs='+',
+        choices=['720p', '1080p', '4K'],
+        default=['720p', '1080p', '4K'],
+        help='标准评测输入分档',
+    )
     model_bench_parser.set_defaults(func=_cmd_model_bench)
     
     # ========== 策略验证评测命令 ==========
