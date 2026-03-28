@@ -179,8 +179,8 @@ class ModelSelectionScenario(BenchmarkScenario):
         from src.inference import Inference
         
         config = Config(model_path=model_path)
-        if runtime_resolution:
-            config.resolution = runtime_resolution
+        if input_tier:
+            config.evaluation.input_tier = input_tier
         config.strategies.multithread.enabled = False
         config.strategies.batch.enabled = False
         config.strategies.pipeline.enabled = False

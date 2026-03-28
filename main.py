@@ -22,6 +22,7 @@ from typing import Dict, List, Tuple, Any, Optional
 
 from config import Config, SUPPORTED_RESOLUTIONS, MAX_AI_CORES
 from commands import cmd_infer, cmd_check, cmd_enhance, cmd_package, cmd_config
+from evaluations.tiers import STANDARD_INPUT_TIERS
 
 __version__ = "1.1.0"
 
@@ -119,8 +120,8 @@ def main():
     model_bench_parser.add_argument(
         '--input-tiers',
         nargs='+',
-        choices=['720p', '1080p', '4K'],
-        default=['720p', '1080p', '4K'],
+        choices=list(STANDARD_INPUT_TIERS),
+        default=list(STANDARD_INPUT_TIERS),
         help='标准评测输入分档',
     )
     model_bench_parser.set_defaults(func=_cmd_model_bench)
