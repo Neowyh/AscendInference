@@ -198,6 +198,16 @@ class TestBenchmarkResult:
         source = inspect.getsource(scenarios_module)
         assert source.count("class BenchmarkResult") == 1
 
+    def test_route_type_is_preserved_on_execution_record(self):
+        result = BenchmarkResult(
+            scenario_name="route_experiment",
+            model_info=ModelInfo(name="test_model"),
+            metrics={"fps": {"pure": 100.0}},
+            route_type="tiled_route",
+        )
+
+        assert result.execution_record.route_type == "tiled_route"
+
 
 class TestModelSelectionScenario:
     """ModelSelectionScenario 类测试"""
@@ -500,6 +510,79 @@ class TestStrategyValidationScenario:
         assert result.execution_record.task_name == "baseline"
         assert result.strategies == ["baseline"]
         assert result.execution_record.strategies == ["baseline"]
+
+    def test_strategy_validation_scenario_run_expands_across_routes(self):
+        scenario = StrategyValidationScenario(
+            {
+                "strategies": ["multithread"],
+                "routes": ["tiled_route", "large_input_route"],
+                "image_size_tiers": ["6K"],
+            }
+        )
+        baseline_calls = []
+        strategy_calls = []
+
+        def fake_baseline(model_path, image_path, route_type=None, image_size_tier=None):
+            baseline_calls.append(
+                {
+                    "model_path": model_path,
+                    "image_path": image_path,
+                    "route_type": route_type,
+                    "image_size_tier": image_size_tier,
+                }
+            )
+            return BenchmarkResult(
+                scenario_name="baseline",
+                model_info=ModelInfo(name=model_path),
+                metrics={"fps": {"pure": 100.0}},
+                route_type=route_type,
+            )
+
+        def fake_strategy(strategy_name, model_path, image_path, baseline_fps, route_type=None, image_size_tier=None):
+            strategy_calls.append(
+                {
+                    "strategy_name": strategy_name,
+                    "model_path": model_path,
+                    "image_path": image_path,
+                    "baseline_fps": baseline_fps,
+                    "route_type": route_type,
+                    "image_size_tier": image_size_tier,
+                }
+            )
+            return BenchmarkResult(
+                scenario_name="strategy_validation",
+                model_info=ModelInfo(name=model_path),
+                metrics={"fps": {"pure": baseline_fps * 2}},
+                strategies=[strategy_name],
+                route_type=route_type,
+            )
+
+        with patch.object(scenario, "_run_baseline", side_effect=fake_baseline), patch.object(
+            scenario, "_run_strategy", side_effect=fake_strategy
+        ):
+            results = scenario.run(["model.om"], ["image.jpg"])
+
+        assert baseline_calls == [
+            {
+                "model_path": "model.om",
+                "image_path": "image.jpg",
+                "route_type": "tiled_route",
+                "image_size_tier": "6K",
+            },
+            {
+                "model_path": "model.om",
+                "image_path": "image.jpg",
+                "route_type": "large_input_route",
+                "image_size_tier": "6K",
+            },
+        ]
+        assert [item["route_type"] for item in strategy_calls] == ["tiled_route", "large_input_route"]
+        assert [result.execution_record.route_type for result in results] == [
+            "tiled_route",
+            "tiled_route",
+            "large_input_route",
+            "large_input_route",
+        ]
 
 
 class TestRouteExperimentScenario:

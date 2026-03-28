@@ -242,6 +242,7 @@ class ModelSelectionScenario(BenchmarkScenario):
                 scenario_name=self.name,
                 model_info=model_info,
                 metrics=metrics,
+                route_type=route_type or "",
                 strategies=[],
                 config={
                     'iterations': self.iterations,
@@ -437,6 +438,7 @@ class BenchmarkResult:
         scenario_name: str = "",
         model_info: Optional[ModelInfo] = None,
         *,
+        route_type: str = "",
         execution_record: Optional[ExecutionRecord] = None,
         model_metrics: Optional[Dict[str, Any]] = None,
         system_metrics: Optional[Dict[str, Any]] = None,
@@ -453,7 +455,7 @@ class BenchmarkResult:
             if model_metrics is not None or system_metrics is not None:
                 execution_record = ExecutionRecord(
                     task_name=scenario_name,
-                    route_type="",
+                    route_type=route_type,
                     model_name=model_info_obj.name,
                     model_info=model_info_obj,
                     model_metrics=dict(model_metrics or {}),
@@ -467,7 +469,7 @@ class BenchmarkResult:
                 execution_record = ExecutionRecord.from_legacy_metrics(
                     metrics,
                     task_name=scenario_name,
-                    route_type="",
+                    route_type=route_type,
                     model_name=model_info_obj.name,
                     model_info=model_info_obj,
                     resource_stats=resource_stats,
@@ -485,10 +487,13 @@ class BenchmarkResult:
                 execution_record.model_info = deepcopy(model_info_obj)
             if not execution_record.model_name:
                 execution_record.model_name = getattr(execution_record.model_info, "name", model_info_obj.name)
+            if route_type and not execution_record.route_type:
+                execution_record.route_type = route_type
 
         self.execution_record = execution_record
         self.scenario_name = scenario_name or self.execution_record.task_name
         self.model_info = model_info_obj or self.execution_record.model_info or ModelInfo()
+        self.route_type = route_type or self.execution_record.route_type
         self.strategies = list(strategies if strategies is not None else self.execution_record.strategies)
         self.config = dict(config if config is not None else self.execution_record.config)
         self.resource_stats = dict(resource_stats if resource_stats is not None else self.execution_record.resource_stats)
@@ -521,6 +526,18 @@ class BenchmarkResult:
             execution_record.model_info = model_info
             execution_record.model_name = getattr(model_info, "name", "")
         object.__setattr__(self, "_model_info", model_info)
+
+    @property
+    def route_type(self) -> str:
+        execution_record = self.__dict__.get("execution_record")
+        return execution_record.route_type if execution_record else self.__dict__.get("_route_type", "")
+
+    @route_type.setter
+    def route_type(self, value: str) -> None:
+        execution_record = self.__dict__.get("execution_record")
+        if execution_record is not None:
+            execution_record.route_type = value
+        object.__setattr__(self, "_route_type", value)
 
     @property
     def model_metrics(self) -> Dict[str, Any]:
@@ -668,21 +685,44 @@ class StrategyValidationScenario(BenchmarkScenario):
         
         if not model_path or not image_path:
             return self._results
-        
-        baseline_result = self._run_baseline(model_path, image_path)
-        if baseline_result:
-            self._results.append(baseline_result)
-        
-        baseline_fps = baseline_result.metrics.get('fps', {}).get('pure', 0) if baseline_result else 0
-        
-        for strategy_name in self.strategies_to_test:
-            strategy_result = self._run_strategy(strategy_name, model_path, image_path, baseline_fps)
-            if strategy_result:
-                self._results.append(strategy_result)
+
+        route_types = self.routes or [None]
+        image_size_tiers = self.image_size_tiers or [None]
+
+        for image_size_tier in image_size_tiers:
+            for route_type in route_types:
+                baseline_result = self._run_baseline(
+                    model_path,
+                    image_path,
+                    route_type=route_type,
+                    image_size_tier=image_size_tier,
+                )
+                if baseline_result:
+                    self._results.append(baseline_result)
+
+                baseline_fps = baseline_result.metrics.get('fps', {}).get('pure', 0) if baseline_result else 0
+
+                for strategy_name in self.strategies_to_test:
+                    strategy_result = self._run_strategy(
+                        strategy_name,
+                        model_path,
+                        image_path,
+                        baseline_fps,
+                        route_type=route_type,
+                        image_size_tier=image_size_tier,
+                    )
+                    if strategy_result:
+                        self._results.append(strategy_result)
         
         return self._results
     
-    def _run_baseline(self, model_path: str, image_path: str) -> Optional[BenchmarkResult]:
+    def _run_baseline(
+        self,
+        model_path: str,
+        image_path: str,
+        route_type: Optional[str] = None,
+        image_size_tier: Optional[str] = None,
+    ) -> Optional[BenchmarkResult]:
         """运行基准测试（无策略）
         
         Args:
@@ -692,13 +732,19 @@ class StrategyValidationScenario(BenchmarkScenario):
         Returns:
             BenchmarkResult: 基准结果
         """
-        scenario = ModelSelectionScenario({
+        scenario_cls = RouteExperimentScenario if route_type else ModelSelectionScenario
+        scenario_config = {
             'iterations': self.iterations,
             'warmup': self.warmup,
             'enable_monitoring': False,
             'device_id': self.device_id,
             'backend': self.backend,
-        })
+        }
+        if route_type:
+            scenario_config['routes'] = [route_type]
+            scenario_config['image_size_tiers'] = [image_size_tier] if image_size_tier else ['6K']
+
+        scenario = scenario_cls(scenario_config)
         
         results = scenario.run([model_path], [image_path])
         
@@ -710,8 +756,15 @@ class StrategyValidationScenario(BenchmarkScenario):
         
         return None
     
-    def _run_strategy(self, strategy_name: str, model_path: str, image_path: str, 
-                      baseline_fps: float) -> Optional[BenchmarkResult]:
+    def _run_strategy(
+        self,
+        strategy_name: str,
+        model_path: str,
+        image_path: str,
+        baseline_fps: float,
+        route_type: Optional[str] = None,
+        image_size_tier: Optional[str] = None,
+    ) -> Optional[BenchmarkResult]:
         """运行单个策略测试
         
         Args:
@@ -724,6 +777,10 @@ class StrategyValidationScenario(BenchmarkScenario):
             BenchmarkResult: 策略结果
         """
         config = Config(model_path=model_path, device_id=self.device_id, backend=self.backend)
+        if route_type:
+            config.evaluation.route_type = route_type
+        if route_type == RouteType.LARGE_INPUT_ROUTE.value and image_size_tier:
+            config.resolution = str(image_size_tier).lower()
         
         if strategy_name == 'multithread':
             config.strategies.multithread.enabled = True
@@ -744,9 +801,24 @@ class StrategyValidationScenario(BenchmarkScenario):
         
         try:
             if strategy_name == 'multithread':
-                return self._run_multithread_strategy(config, image_path, baseline_fps, theoretical_speedup)
+                return self._run_multithread_strategy(
+                    config,
+                    image_path,
+                    baseline_fps,
+                    theoretical_speedup,
+                    route_type=route_type,
+                    image_size_tier=image_size_tier,
+                )
             else:
-                return self._run_simple_strategy(config, image_path, strategy_name, baseline_fps, theoretical_speedup)
+                return self._run_simple_strategy(
+                    config,
+                    image_path,
+                    strategy_name,
+                    baseline_fps,
+                    theoretical_speedup,
+                    route_type=route_type,
+                    image_size_tier=image_size_tier,
+                )
         except InferenceError as e:
             logger.error(f"策略 {strategy_name} 测试失败: {e}")
             raise BenchmarkError(
@@ -764,8 +836,16 @@ class StrategyValidationScenario(BenchmarkScenario):
                 details={"strategy": strategy_name, "model_path": model_path}
             ) from e
     
-    def _run_simple_strategy(self, config: Config, image_path: str, strategy_name: str,
-                             baseline_fps: float, theoretical_speedup: float) -> Optional[BenchmarkResult]:
+    def _run_simple_strategy(
+        self,
+        config: Config,
+        image_path: str,
+        strategy_name: str,
+        baseline_fps: float,
+        theoretical_speedup: float,
+        route_type: Optional[str] = None,
+        image_size_tier: Optional[str] = None,
+    ) -> Optional[BenchmarkResult]:
         """运行简单策略测试
         
         Args:
@@ -828,7 +908,16 @@ class StrategyValidationScenario(BenchmarkScenario):
                 model_info=ModelInfo(name=os.path.basename(config.model_path)),
                 metrics=metrics,
                 strategies=[strategy_name],
-                config={'iterations': self.iterations, 'warmup': self.warmup}
+                route_type=route_type or "",
+                config={
+                    'iterations': self.iterations,
+                    'warmup': self.warmup,
+                    'route_type': route_type,
+                    'image_size_tier': image_size_tier,
+                    'runtime_resolution': config.resolution,
+                    'device_id': config.device_id,
+                    'backend': config.backend,
+                }
             )
             
         except InferenceError:
@@ -844,8 +933,15 @@ class StrategyValidationScenario(BenchmarkScenario):
         finally:
             inference.destroy()
     
-    def _run_multithread_strategy(self, config: Config, image_path: str,
-                                   baseline_fps: float, theoretical_speedup: float) -> Optional[BenchmarkResult]:
+    def _run_multithread_strategy(
+        self,
+        config: Config,
+        image_path: str,
+        baseline_fps: float,
+        theoretical_speedup: float,
+        route_type: Optional[str] = None,
+        image_size_tier: Optional[str] = None,
+    ) -> Optional[BenchmarkResult]:
         """运行多线程策略测试
         
         Args:
@@ -900,7 +996,17 @@ class StrategyValidationScenario(BenchmarkScenario):
                 model_info=ModelInfo(name=os.path.basename(config.model_path)),
                 metrics=metrics,
                 strategies=['multithread'],
-                config={'iterations': self.iterations, 'warmup': self.warmup, 'num_threads': config.num_threads}
+                route_type=route_type or "",
+                config={
+                    'iterations': self.iterations,
+                    'warmup': self.warmup,
+                    'num_threads': config.num_threads,
+                    'route_type': route_type,
+                    'image_size_tier': image_size_tier,
+                    'runtime_resolution': config.resolution,
+                    'device_id': config.device_id,
+                    'backend': config.backend,
+                }
             )
             
         except InferenceError:
