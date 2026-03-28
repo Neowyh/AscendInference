@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Any, Optional, Union
 
 from config import Config
+from reporting.models import ExecutionRecord
 from utils.metrics import MetricsCollector, TimingRecord
 from utils.monitor import ResourceMonitor, SimpleResourceMonitor
 from utils.exceptions import BenchmarkError, InferenceError
@@ -326,6 +327,98 @@ class ModelSelectionScenario(BenchmarkScenario):
         lines.append("=" * 80)
         
         return "\n".join(lines)
+
+
+@dataclass(init=False)
+class BenchmarkResult:
+    """统一执行结果。
+
+    通过 execution_record 承载拆分后的指标，同时保留旧的 metrics 兼容视图。
+    """
+
+    scenario_name: str = ""
+    model_info: ModelInfo = field(default_factory=ModelInfo)
+    execution_record: ExecutionRecord = field(default_factory=ExecutionRecord)
+    strategies: List[str] = field(default_factory=list)
+    config: Dict[str, Any] = field(default_factory=dict)
+    resource_stats: Dict[str, Any] = field(default_factory=dict)
+    timestamp: float = field(default_factory=time.time)
+
+    def __init__(
+        self,
+        scenario_name: str = "",
+        model_info: Optional[ModelInfo] = None,
+        *,
+        execution_record: Optional[ExecutionRecord] = None,
+        model_metrics: Optional[Dict[str, Any]] = None,
+        system_metrics: Optional[Dict[str, Any]] = None,
+        metrics: Optional[Dict[str, Any]] = None,
+        strategies: Optional[List[str]] = None,
+        config: Optional[Dict[str, Any]] = None,
+        resource_stats: Optional[Dict[str, Any]] = None,
+        timestamp: Optional[float] = None,
+    ) -> None:
+        self.scenario_name = scenario_name
+        self.model_info = model_info or ModelInfo()
+        self.strategies = list(strategies or [])
+        self.config = dict(config or {})
+        self.resource_stats = dict(resource_stats or {})
+        self.timestamp = time.time() if timestamp is None else timestamp
+
+        if execution_record is None:
+            if model_metrics is not None or system_metrics is not None:
+                execution_record = ExecutionRecord(
+                    task_name=scenario_name,
+                    route_type="",
+                    model_name=self.model_info.name,
+                    model_metrics=dict(model_metrics or {}),
+                    system_metrics=dict(system_metrics or {}),
+                    resource_stats=dict(self.resource_stats),
+                    config=dict(self.config),
+                    strategies=list(self.strategies),
+                    timestamp=self.timestamp,
+                )
+            else:
+                execution_record = ExecutionRecord.from_legacy_metrics(
+                    metrics,
+                    task_name=scenario_name,
+                    route_type="",
+                    model_name=self.model_info.name,
+                    resource_stats=self.resource_stats,
+                    config=self.config,
+                    strategies=self.strategies,
+                    timestamp=self.timestamp,
+                )
+        else:
+            if not execution_record.resource_stats and self.resource_stats:
+                execution_record.resource_stats = dict(self.resource_stats)
+            if not execution_record.config and self.config:
+                execution_record.config = dict(self.config)
+            if not execution_record.strategies and self.strategies:
+                execution_record.strategies = list(self.strategies)
+            if not execution_record.task_name:
+                execution_record.task_name = scenario_name
+            if not execution_record.model_name:
+                execution_record.model_name = self.model_info.name
+
+        self.execution_record = execution_record
+        self._legacy_metrics = self.execution_record.to_legacy_metrics()
+
+    @property
+    def model_metrics(self) -> Dict[str, Any]:
+        return self.execution_record.model_metrics
+
+    @property
+    def system_metrics(self) -> Dict[str, Any]:
+        return self.execution_record.system_metrics
+
+    @property
+    def metrics(self) -> Dict[str, Any]:
+        return self._legacy_metrics
+
+    @metrics.setter
+    def metrics(self, value: Dict[str, Any]) -> None:
+        self._legacy_metrics = dict(value or {})
 
 
 class StrategyValidationScenario(BenchmarkScenario):

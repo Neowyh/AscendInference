@@ -86,6 +86,29 @@ class TestBenchmarkResult:
         assert result.config['iterations'] == 100
         assert result.resource_stats['cpu']['avg'] == 50.0
 
+    def test_split_metrics_preserve_legacy_metrics_view(self):
+        result = BenchmarkResult(
+            scenario_name="model_selection",
+            model_info=ModelInfo(name="test_model"),
+            model_metrics={
+                'preprocess': {'avg': 10.0},
+                'execute': {'avg': 12.0},
+                'fps': {'pure': 83.3}
+            },
+            system_metrics={
+                'fps': {'e2e': 55.5},
+                'iterations': {'test': 100},
+                'duration': {'test_time_ms': 1200.0}
+            },
+            resource_stats={'cpu': {'avg': 42.0}}
+        )
+
+        assert result.model_metrics['execute']['avg'] == 12.0
+        assert result.system_metrics['fps']['e2e'] == 55.5
+        assert result.metrics['fps']['pure'] == 83.3
+        assert result.metrics['fps']['e2e'] == 55.5
+        assert result.metrics['iterations']['test'] == 100
+
 
 class TestModelSelectionScenario:
     """ModelSelectionScenario 类测试"""
