@@ -88,6 +88,11 @@ class Config:
     def __post_init__(self) -> None:
         if not isinstance(self.evaluation, EvaluationConfig):
             raise TypeError("evaluation must be an EvaluationConfig instance")
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        if name == "evaluation" and not isinstance(value, EvaluationConfig):
+            raise TypeError("evaluation must be an EvaluationConfig instance")
+        super().__setattr__(name, value)
     
     @classmethod
     def from_json(cls, path: str) -> 'Config':
@@ -136,8 +141,6 @@ class Config:
 
             if 'evaluation' in data:
                 config.evaluation = EvaluationConfig.from_dict(data['evaluation'])
-            elif any(key in data for key in ('input_tier', 'route_type', 'report_format', 'archive_enabled')):
-                config.evaluation = EvaluationConfig.from_dict(data)
             
             return config
         except Exception as e:

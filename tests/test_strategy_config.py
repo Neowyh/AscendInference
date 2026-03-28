@@ -6,6 +6,7 @@
 测试 config/strategy_config.py 中的核心功能
 """
 
+import inspect
 import json
 from pathlib import Path
 
@@ -467,6 +468,26 @@ class TestConfigIntegration:
         config.strategies.multithread.enabled = True
         assert config.is_strategy_enabled('multithread') is True
         assert config.is_strategy_enabled('batch') is False
+
+
+    def test_configvalidator_has_single_evaluation_validator(self):
+        """娴嬭瘯 validator 鏃犻噸澶嶇殑 _validate_evaluation 瀹炵幇"""
+        from config.validator import ConfigValidator
+
+        source = inspect.getsource(ConfigValidator)
+        assert source.count("def _validate_evaluation") == 1
+
+    def test_config_rejects_runtime_evaluation_reassignment(self):
+        """娴嬭瘯 Config 鍦ㄨ繍琛屾椂鍚敤 evaluation 鍒囨崲淇濇寔寮哄璞?"""
+        from config import Config
+
+        config = Config()
+
+        with pytest.raises(TypeError):
+            config.evaluation = {}
+
+        with pytest.raises(TypeError):
+            config.evaluation = 123
 
 
 if __name__ == '__main__':
