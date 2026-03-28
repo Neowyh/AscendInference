@@ -47,10 +47,10 @@ class Registry:
             registry.register_model(ModelAsset.from_dict(model_data))
 
         for device_data in data.get("devices", []):
-            registry.register_device(DeviceProfile(**device_data))
+            registry.register_device(DeviceProfile.from_dict(device_data))
 
         for scenario_data in data.get("scenarios", []):
-            registry.register_scenario(ScenarioDefinition(**scenario_data))
+            registry.register_scenario(ScenarioDefinition.from_dict(scenario_data))
 
         return registry
 

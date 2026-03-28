@@ -141,5 +141,59 @@ def test_registry_rejects_duplicate_registration(register_name, item_factory):
         register(item_factory())
 
 
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"name": "edge-device"},
+        {"supported_tiers": ["720p"]},
+        {"supported_routes": ["tiled_route"]},
+    ],
+)
+def test_device_profile_from_dict_requires_required_fields(payload):
+    with pytest.raises(ValueError):
+        DeviceProfile.from_dict(payload)
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"model_name": "rs-yolo"},
+        {"name": "edge-scenario"},
+        {"route_type": "tiled_route"},
+    ],
+)
+def test_scenario_definition_from_dict_requires_required_fields(payload):
+    with pytest.raises(ValueError):
+        ScenarioDefinition.from_dict(payload)
+
+
+def test_registry_from_dict_rejects_invalid_device_payload():
+    with pytest.raises(ValueError):
+        Registry.from_dict(
+            {
+                "devices": [
+                    {
+                        "name": "edge-device",
+                        "supported_routes": ["tiled_route"],
+                    }
+                ]
+            }
+        )
+
+
+def test_registry_from_dict_rejects_invalid_scenario_payload():
+    with pytest.raises(ValueError):
+        Registry.from_dict(
+            {
+                "scenarios": [
+                    {
+                        "name": "edge-scenario",
+                        "route_type": "tiled_route",
+                    }
+                ]
+            }
+        )
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
