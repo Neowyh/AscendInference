@@ -15,6 +15,7 @@ from typing import List, Tuple, Dict, Any, Optional
 from dataclasses import dataclass
 
 from config import Config
+from config.strategy_config import EvaluationConfig
 from evaluations.routes import RouteType
 from evaluations.tiers import InputTier
 from utils.logger import LoggerConfig, get_logger
@@ -264,6 +265,41 @@ class ConfigValidator:
                 errors.append(
                     "large_input_route 瑕佹眰 4K 杈撳叆鍒嗗烟鍜?4k6k 鍙婁互涓婄殑鍒嗚鲸鐜?"
                 )
+    @staticmethod
+    def _validate_evaluation(config: Config, errors: List[str], warnings: List[str]) -> None:
+        """Validate evaluation-specific configuration."""
+        evaluation = getattr(config, "evaluation", None)
+        if not isinstance(evaluation, EvaluationConfig):
+            errors.append("evaluation must be an EvaluationConfig instance")
+            return
+
+        try:
+            input_tier = InputTier.from_value(evaluation.input_tier)
+        except Exception as exc:
+            errors.append(f"Unsupported input tier: {evaluation.input_tier}, error: {exc}")
+            return
+
+        try:
+            RouteType.from_value(evaluation.route_type)
+        except Exception as exc:
+            errors.append(f"Unsupported route type: {evaluation.route_type}, error: {exc}")
+            return
+
+        report_format = evaluation.report_format
+        if not report_format:
+            errors.append("Report format cannot be empty")
+        elif report_format not in {"text", "json", "markdown"}:
+            errors.append(f"Unsupported report format: {report_format}")
+
+        if not isinstance(evaluation.archive_enabled, bool):
+            errors.append("Archive flag must be a boolean")
+
+        expected_width, expected_height = Config.get_resolution(input_tier.runtime_resolution)
+        width, height = Config.get_resolution(config.resolution)
+        if (width, height) != (expected_width, expected_height):
+            errors.append(
+                f"Resolution {config.resolution} must match input tier {input_tier.value} ({input_tier.runtime_resolution})"
+            )
 
 
 def validate_config(config: Config, raise_on_error: bool = True) -> ValidationResult:

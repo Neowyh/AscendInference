@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 
 from config import Config
+from config.strategy_config import EvaluationConfig
 from config.validator import ConfigValidator
 from evaluations.routes import RouteType
 from evaluations.tasks import EvaluationTask
@@ -78,24 +79,23 @@ def test_evaluation_templates_exist_and_expose_evaluation_block():
     assert remote_sensing_data["evaluation"]["route_type"] == "large_input_route"
 
 
-def test_large_input_route_requires_large_resolution(monkeypatch):
+def test_large_input_route_with_supported_combinations_is_valid(monkeypatch):
     config = Config(
         model_path="models/yolov8s.om",
-        resolution="640x640",
+        resolution="1k2k",
+        evaluation=EvaluationConfig(
+            input_tier="1080p",
+            route_type="large_input_route",
+            report_format="json",
+            archive_enabled=True,
+        ),
     )
-    config.evaluation = {
-        "input_tier": "720p",
-        "route_type": "large_input_route",
-        "report_format": "json",
-        "archive_enabled": True,
-    }
 
     monkeypatch.setattr("config.validator.os.path.exists", lambda _: True)
 
     result = ConfigValidator.validate(config)
 
-    assert result.is_valid is False
-    assert any("large_input_route" in error for error in result.errors)
+    assert result.is_valid is True
 
 
 if __name__ == "__main__":

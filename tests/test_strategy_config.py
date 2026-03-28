@@ -409,6 +409,13 @@ class TestConfigIntegration:
         assert isinstance(config.strategies, StrategyConfig)
         assert isinstance(config.benchmark, BenchmarkConfig)
         assert isinstance(config.evaluation, EvaluationConfig)
+
+    def test_config_requires_evaluation_config(self):
+        """娴嬭瘯 Config 瑕佹眰 evaluation 涓哄己绫诲瀷"""
+        from config import Config
+
+        with pytest.raises(TypeError):
+            Config(evaluation={})
     
     def test_config_to_dict(self):
         """测试 Config 转换为字典"""
@@ -434,6 +441,7 @@ class TestConfigIntegration:
         config_file = Path(__file__).resolve().parents[1] / "config" / "evaluation" / "default_remote_sensing_eval.json"
         config = Config.from_json(str(config_file))
 
+        assert isinstance(config.evaluation, EvaluationConfig)
         assert config.evaluation.input_tier == "4K"
         assert config.evaluation.route_type == "large_input_route"
         assert config.evaluation.report_format == "json"

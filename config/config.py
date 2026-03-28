@@ -84,6 +84,10 @@ class Config:
     
     SUPPORTED_RESOLUTIONS = _SUPPORTED_RESOLUTIONS
     MAX_AI_CORES = _MAX_AI_CORES
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.evaluation, EvaluationConfig):
+            raise TypeError("evaluation must be an EvaluationConfig instance")
     
     @classmethod
     def from_json(cls, path: str) -> 'Config':
@@ -165,13 +169,7 @@ class Config:
             'strategies': self.strategies.to_dict(),
             'benchmark': self.benchmark.to_dict(),
             'model_info': self.model_info.to_dict(),
-            'evaluation': (
-                self.evaluation.to_dict()
-                if hasattr(self.evaluation, 'to_dict')
-                else dict(self.evaluation)
-                if isinstance(self.evaluation, dict)
-                else dict(vars(self.evaluation))
-            )
+            'evaluation': self.evaluation.to_dict()
         }
     
     def apply_overrides(self, **kwargs: Any) -> None:
