@@ -154,24 +154,32 @@ class TestBenchmarkResult:
             "execute": {"avg": 12.0},
             "fps": {"pure": 100.0, "e2e": 80.0},
         }
+        model_info = ModelInfo(name="test_model", resolution="640x640")
         config = {"nested": {"enabled": True}}
         resource_stats = {"cpu": {"avg": 20.0}}
+        strategies = ["baseline", "batch"]
 
         result = BenchmarkResult(
             scenario_name="initial",
-            model_info=ModelInfo(name="test_model"),
+            model_info=model_info,
             metrics=metrics,
+            strategies=strategies,
             config=config,
             resource_stats=resource_stats,
         )
 
+        model_info.name = "mutated_model"
         metrics["execute"]["avg"] = 99.0
         config["nested"]["enabled"] = False
         resource_stats["cpu"]["avg"] = 42.0
+        strategies.append("pipeline")
 
+        assert result.model_info.name == "test_model"
+        assert result.execution_record.model_name == "test_model"
         assert result.metrics["execute"]["avg"] == 12.0
         assert result.config["nested"]["enabled"] is True
         assert result.resource_stats["cpu"]["avg"] == 20.0
+        assert result.strategies == ["baseline", "batch"]
 
         setter_metrics = {
             "execute": {"avg": 15.0},

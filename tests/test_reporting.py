@@ -199,3 +199,19 @@ def test_execution_record_from_legacy_metrics_snapshots_nested_inputs():
     assert record.system_metrics["iterations"]["test"] == 100
     assert record.resource_stats["cpu"]["avg"] == 20.0
     assert record.config["nested"]["enabled"] is True
+
+
+def test_execution_record_constructor_snapshots_model_info():
+    from reporting.models import ExecutionRecord
+
+    class ModelInfo:
+        def __init__(self, name: str):
+            self.name = name
+
+    model_info = ModelInfo("snapshot_model")
+    record = ExecutionRecord(model_name="snapshot_model", model_info=model_info)
+
+    model_info.name = "renamed_model"
+
+    assert record.model_name == "snapshot_model"
+    assert record.model_info.name == "snapshot_model"

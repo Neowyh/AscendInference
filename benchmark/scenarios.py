@@ -349,7 +349,7 @@ class BenchmarkResult:
         model_info_obj = model_info
 
         if execution_record is None:
-            model_info_obj = model_info_obj or ModelInfo()
+            model_info_obj = deepcopy(model_info_obj) if model_info_obj is not None else ModelInfo()
             if model_metrics is not None or system_metrics is not None:
                 execution_record = ExecutionRecord(
                     task_name=scenario_name,
@@ -378,8 +378,11 @@ class BenchmarkResult:
         else:
             if model_info_obj is None:
                 model_info_obj = execution_record.model_info or ModelInfo(name=execution_record.model_name)
-            if execution_record.model_info is None:
+            else:
+                model_info_obj = deepcopy(model_info_obj)
                 execution_record.model_info = model_info_obj
+            if execution_record.model_info is None:
+                execution_record.model_info = deepcopy(model_info_obj)
             if not execution_record.model_name:
                 execution_record.model_name = getattr(execution_record.model_info, "name", model_info_obj.name)
 
@@ -412,7 +415,7 @@ class BenchmarkResult:
 
     @model_info.setter
     def model_info(self, value: Optional[ModelInfo]) -> None:
-        model_info = value or ModelInfo()
+        model_info = deepcopy(value) if value is not None else ModelInfo()
         execution_record = self.__dict__.get("execution_record")
         if execution_record is not None:
             execution_record.model_info = model_info
@@ -470,7 +473,7 @@ class BenchmarkResult:
 
     @strategies.setter
     def strategies(self, value: Optional[List[str]]) -> None:
-        strategies = list(value or [])
+        strategies = deepcopy(value or [])
         execution_record = self.__dict__.get("execution_record")
         if execution_record is not None:
             execution_record.strategies = strategies

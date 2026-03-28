@@ -107,7 +107,7 @@ class ExecutionRecord:
     ) -> None:
         self.task_name = task_name
         self.route_type = route_type
-        self.model_info = model_info if model_info is not None else SimpleNamespace(name="")
+        self.model_info = deepcopy(model_info) if model_info is not None else SimpleNamespace(name="")
         if model_name:
             self.model_name = model_name
         elif getattr(self.model_info, "name", "") == "":
@@ -158,7 +158,7 @@ class ExecutionRecord:
             task_name=task_name,
             route_type=route_type,
             model_name=model_name,
-            model_info=model_info,
+            model_info=deepcopy(model_info) if model_info is not None else None,
             model_metrics=split_metrics["model_metrics"],
             system_metrics=split_metrics["system_metrics"],
             resource_stats=dict(resource_stats or {}),
