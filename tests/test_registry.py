@@ -1,14 +1,24 @@
 import pytest
 
+from config import SUPPORTED_RESOLUTIONS
 from evaluations.routes import RouteType, REMOTE_SENSING_ROUTES
 from evaluations.tiers import InputTier, STANDARD_INPUT_TIERS
-from registry.loader import load_registry
+from registry.devices import DeviceProfile
+from registry.loader import Registry, load_registry
 from registry.models import InputSpec, ModelAsset
+from registry.scenarios import ScenarioDefinition
 
 
 def test_standard_input_tiers_are_fixed():
     assert STANDARD_INPUT_TIERS == ("720p", "1080p", "4K")
     assert [tier.value for tier in InputTier] == ["720p", "1080p", "4K"]
+
+
+def test_input_tier_runtime_resolution_mapping_is_explicit():
+    assert InputTier.TIER_720P.runtime_resolution == "640x640"
+    assert InputTier.TIER_1080P.runtime_resolution == "1k2k"
+    assert InputTier.TIER_4K.runtime_resolution == "4k6k"
+    assert InputTier.TIER_4K.runtime_resolution in SUPPORTED_RESOLUTIONS
 
 
 def test_remote_sensing_routes_are_fixed():
@@ -54,6 +64,81 @@ def test_registry_loader_builds_model_catalog():
     assert model is not None
     assert model.get_input_spec("1080p").width == 1920
     assert model.supports_route(RouteType.LARGE_INPUT_ROUTE) is True
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"width": 1280, "height": 720},
+        {"tier": "720p", "height": 720},
+        {"tier": "720p", "width": 1280},
+    ],
+)
+def test_input_spec_from_dict_requires_required_fields(payload):
+    with pytest.raises(ValueError):
+        InputSpec.from_dict(payload)
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {
+            "input_specs": [{"tier": "720p", "width": 1280, "height": 720}],
+            "supported_routes": ["tiled_route"],
+        },
+        {
+            "name": "rs-yolo",
+            "supported_routes": ["tiled_route"],
+        },
+        {
+            "name": "rs-yolo",
+            "input_specs": [{"tier": "720p", "width": 1280, "height": 720}],
+        },
+    ],
+)
+def test_model_asset_from_dict_requires_required_fields(payload):
+    with pytest.raises(ValueError):
+        ModelAsset.from_dict(payload)
+
+
+@pytest.mark.parametrize(
+    "register_name, item_factory",
+    [
+        (
+            "register_model",
+            lambda: ModelAsset(
+                name="duplicate",
+                input_specs=(InputSpec(tier=InputTier.TIER_720P, width=1280, height=720),),
+                supported_routes=(RouteType.TILED_ROUTE,),
+            ),
+        ),
+        (
+            "register_device",
+            lambda: DeviceProfile(
+                name="duplicate",
+                supported_tiers=(InputTier.TIER_720P,),
+                supported_routes=(RouteType.TILED_ROUTE,),
+            ),
+        ),
+        (
+            "register_scenario",
+            lambda: ScenarioDefinition(
+                name="duplicate",
+                model_name="duplicate",
+                input_tier=InputTier.TIER_720P,
+                route_type=RouteType.TILED_ROUTE,
+            ),
+        ),
+    ],
+)
+def test_registry_rejects_duplicate_registration(register_name, item_factory):
+    registry = Registry()
+    register = getattr(registry, register_name)
+
+    register(item_factory())
+
+    with pytest.raises(ValueError):
+        register(item_factory())
 
 
 if __name__ == "__main__":

@@ -13,6 +13,8 @@ class Registry:
     scenarios: Dict[str, ScenarioDefinition] = field(default_factory=dict)
 
     def register_model(self, model):
+        if model.name in self.models:
+            raise ValueError("Duplicate model registration: %s" % model.name)
         self.models[model.name] = model
         return model
 
@@ -20,6 +22,8 @@ class Registry:
         return self.models.get(name)
 
     def register_device(self, device):
+        if device.name in self.devices:
+            raise ValueError("Duplicate device registration: %s" % device.name)
         self.devices[device.name] = device
         return device
 
@@ -27,6 +31,8 @@ class Registry:
         return self.devices.get(name)
 
     def register_scenario(self, scenario):
+        if scenario.name in self.scenarios:
+            raise ValueError("Duplicate scenario registration: %s" % scenario.name)
         self.scenarios[scenario.name] = scenario
         return scenario
 

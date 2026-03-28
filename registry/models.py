@@ -5,6 +5,15 @@ from evaluations.routes import RouteType
 from evaluations.tiers import InputTier
 
 
+def _require_field(data, field_name):
+    if field_name not in data:
+        raise ValueError("Missing required field: %s" % field_name)
+    value = data[field_name]
+    if value is None or value == "":
+        raise ValueError("Missing required field: %s" % field_name)
+    return value
+
+
 def _coerce_input_tier(value):
     return InputTier.from_value(value)
 
@@ -23,13 +32,17 @@ class InputSpec:
 
     def __post_init__(self):
         self.tier = _coerce_input_tier(self.tier)
+        if self.width is None or self.width <= 0:
+            raise ValueError("InputSpec requires a positive width")
+        if self.height is None or self.height <= 0:
+            raise ValueError("InputSpec requires a positive height")
 
     @classmethod
     def from_dict(cls, data):
         return cls(
-            tier=data.get("tier"),
-            width=data.get("width", 0),
-            height=data.get("height", 0),
+            tier=_require_field(data, "tier"),
+            width=_require_field(data, "width"),
+            height=_require_field(data, "height"),
             channels=data.get("channels", 3),
             metadata=data.get("metadata", {}),
         )
@@ -52,6 +65,8 @@ class ModelAsset:
     metadata: Dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self):
+        if not self.name:
+            raise ValueError("ModelAsset requires a name")
         self.input_specs = tuple(
             spec if isinstance(spec, InputSpec) else InputSpec.from_dict(spec)
             for spec in self.input_specs
@@ -60,13 +75,17 @@ class ModelAsset:
             route if isinstance(route, RouteType) else _coerce_route_type(route)
             for route in self.supported_routes
         )
+        if not self.input_specs:
+            raise ValueError("ModelAsset requires at least one input spec")
+        if not self.supported_routes:
+            raise ValueError("ModelAsset requires at least one supported route")
 
     @classmethod
     def from_dict(cls, data):
         return cls(
-            name=data.get("name", ""),
-            input_specs=tuple(data.get("input_specs", ())),
-            supported_routes=tuple(data.get("supported_routes", ())),
+            name=_require_field(data, "name"),
+            input_specs=tuple(_require_field(data, "input_specs")),
+            supported_routes=tuple(_require_field(data, "supported_routes")),
             metadata=data.get("metadata", {}),
         )
 
