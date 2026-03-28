@@ -9,6 +9,7 @@
 
 from copy import deepcopy
 from dataclasses import dataclass, field
+from types import SimpleNamespace
 from typing import Any, Dict, Optional
 import time
 
@@ -65,7 +66,7 @@ def _split_legacy_metrics(metrics: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
     }
 
 
-@dataclass
+@dataclass(init=False)
 class ExecutionRecord:
     """统一执行记录。
 
@@ -83,7 +84,6 @@ class ExecutionRecord:
 
     task_name: str = ""
     route_type: str = ""
-    model_name: str = ""
     model_info: Any = None
     model_metrics: Dict[str, Any] = field(default_factory=dict)
     system_metrics: Dict[str, Any] = field(default_factory=dict)
@@ -92,17 +92,46 @@ class ExecutionRecord:
     strategies: list = field(default_factory=list)
     timestamp: float = field(default_factory=time.time)
 
-    def __setattr__(self, name: str, value: Any) -> None:
-        object.__setattr__(self, name, value)
+    def __init__(
+        self,
+        task_name: str = "",
+        route_type: str = "",
+        model_name: str = "",
+        model_info: Any = None,
+        model_metrics: Optional[Dict[str, Any]] = None,
+        system_metrics: Optional[Dict[str, Any]] = None,
+        resource_stats: Optional[Dict[str, Any]] = None,
+        config: Optional[Dict[str, Any]] = None,
+        strategies: Optional[list] = None,
+        timestamp: Optional[float] = None,
+    ) -> None:
+        self.task_name = task_name
+        self.route_type = route_type
+        self.model_info = model_info if model_info is not None else SimpleNamespace(name="")
+        if model_name:
+            self.model_name = model_name
+        elif getattr(self.model_info, "name", "") == "":
+            self.model_name = ""
+        self.model_metrics = dict(model_metrics or {})
+        self.system_metrics = dict(system_metrics or {})
+        self.resource_stats = dict(resource_stats or {})
+        self.config = dict(config or {})
+        self.strategies = list(strategies or [])
+        self.timestamp = time.time() if timestamp is None else timestamp
 
-        if name == "model_name":
-            model_info = self.__dict__.get("model_info")
-            if model_info is not None and hasattr(model_info, "name"):
-                object.__setattr__(model_info, "name", value)
-        elif name == "model_info":
-            model_info = value
-            if model_info is not None and hasattr(model_info, "name"):
-                object.__setattr__(self, "model_name", getattr(model_info, "name", ""))
+    @property
+    def model_name(self) -> str:
+        model_info = self.__dict__.get("model_info")
+        return getattr(model_info, "name", "")
+
+    @model_name.setter
+    def model_name(self, value: str) -> None:
+        model_info = self.__dict__.get("model_info")
+        if model_info is None:
+            model_info = SimpleNamespace(name="")
+            object.__setattr__(self, "model_info", model_info)
+        if hasattr(model_info, "name"):
+            object.__setattr__(model_info, "name", value)
 
     def to_legacy_metrics(self) -> Dict[str, Any]:
         """返回兼容旧代码的合并指标视图。"""
