@@ -8,10 +8,7 @@ from evaluations.tiers import InputTier
 def _require_field(data, field_name):
     if field_name not in data:
         raise ValueError("Missing required field: %s" % field_name)
-    value = data[field_name]
-    if value is None or value == "":
-        raise ValueError("Missing required field: %s" % field_name)
-    return value
+    return data[field_name]
 
 
 @dataclass

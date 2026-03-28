@@ -228,6 +228,46 @@ def test_device_profile_from_dict_string_scalar_matches_direct_construction_erro
 @pytest.mark.parametrize(
     "payload",
     [
+        {
+            "name": "",
+            "supported_tiers": (InputTier.TIER_720P,),
+            "supported_routes": (RouteType.TILED_ROUTE,),
+        },
+        {
+            "name": "edge-device",
+            "supported_tiers": "",
+            "supported_routes": (RouteType.TILED_ROUTE,),
+        },
+        {
+            "name": "edge-device",
+            "supported_tiers": None,
+            "supported_routes": (RouteType.TILED_ROUTE,),
+        },
+        {
+            "name": "edge-device",
+            "supported_tiers": (InputTier.TIER_720P,),
+            "supported_routes": "",
+        },
+        {
+            "name": "edge-device",
+            "supported_tiers": (InputTier.TIER_720P,),
+            "supported_routes": None,
+        },
+    ],
+)
+def test_device_profile_from_dict_matches_direct_construction_error_message(payload):
+    with pytest.raises(ValueError) as direct_error:
+        DeviceProfile(**payload)
+
+    with pytest.raises(ValueError) as from_dict_error:
+        DeviceProfile.from_dict(payload)
+
+    assert str(from_dict_error.value) == str(direct_error.value)
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
         {"model_name": "rs-yolo"},
         {"name": "edge-scenario"},
         {"route_type": "tiled_route"},
@@ -270,6 +310,57 @@ def test_scenario_definition_from_dict_requires_required_fields(payload):
 def test_scenario_definition_direct_construction_rejects_invalid_values(kwargs):
     with pytest.raises(ValueError):
         ScenarioDefinition(**kwargs)
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {
+            "name": "",
+            "model_name": "rs-yolo",
+            "input_tier": InputTier.TIER_720P,
+            "route_type": RouteType.TILED_ROUTE,
+        },
+        {
+            "name": "edge-scenario",
+            "model_name": "",
+            "input_tier": InputTier.TIER_720P,
+            "route_type": RouteType.TILED_ROUTE,
+        },
+        {
+            "name": "edge-scenario",
+            "model_name": "rs-yolo",
+            "input_tier": "",
+            "route_type": RouteType.TILED_ROUTE,
+        },
+        {
+            "name": "edge-scenario",
+            "model_name": "rs-yolo",
+            "input_tier": None,
+            "route_type": RouteType.TILED_ROUTE,
+        },
+        {
+            "name": "edge-scenario",
+            "model_name": "rs-yolo",
+            "input_tier": InputTier.TIER_720P,
+            "route_type": "",
+        },
+        {
+            "name": "edge-scenario",
+            "model_name": "rs-yolo",
+            "input_tier": InputTier.TIER_720P,
+            "route_type": None,
+        },
+    ],
+)
+def test_scenario_definition_from_dict_matches_direct_construction_error_message(payload):
+    with pytest.raises(ValueError) as direct_error:
+        ScenarioDefinition(**payload)
+
+    with pytest.raises(ValueError) as from_dict_error:
+        ScenarioDefinition.from_dict(payload)
+
+    assert str(from_dict_error.value) == str(direct_error.value)
 
 
 def test_registry_from_dict_rejects_invalid_device_payload():
