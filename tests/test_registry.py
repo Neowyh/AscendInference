@@ -172,6 +172,31 @@ def test_device_profile_direct_construction_rejects_invalid_values(kwargs):
 
 
 @pytest.mark.parametrize(
+    "kwargs",
+    [
+        {
+            "name": "edge-device",
+            "supported_tiers": None,
+            "supported_routes": (RouteType.TILED_ROUTE,),
+        },
+        {
+            "name": "edge-device",
+            "supported_tiers": (InputTier.TIER_720P,),
+            "supported_routes": None,
+        },
+        {
+            "name": "edge-device",
+            "supported_tiers": 123,
+            "supported_routes": (RouteType.TILED_ROUTE,),
+        },
+    ],
+)
+def test_device_profile_direct_construction_rejects_none_or_non_iterable(kwargs):
+    with pytest.raises(ValueError):
+        DeviceProfile(**kwargs)
+
+
+@pytest.mark.parametrize(
     "payload",
     [
         {"name": "edge-device"},

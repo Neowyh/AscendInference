@@ -14,6 +14,20 @@ def _require_field(data, field_name):
     return value
 
 
+def _normalize_sequence_field(value, field_name):
+    if value is None:
+        raise ValueError("DeviceProfile requires non-empty %s" % field_name)
+    if isinstance(value, (str, bytes)):
+        raise ValueError("DeviceProfile requires %s to be a non-empty iterable" % field_name)
+    try:
+        normalized = tuple(value)
+    except TypeError as exc:
+        raise ValueError("DeviceProfile requires %s to be a non-empty iterable" % field_name) from exc
+    if not normalized:
+        raise ValueError("DeviceProfile requires non-empty %s" % field_name)
+    return normalized
+
+
 @dataclass
 class DeviceProfile:
     name: str
@@ -25,6 +39,14 @@ class DeviceProfile:
     def __post_init__(self):
         if not isinstance(self.name, str) or not self.name.strip():
             raise ValueError("DeviceProfile requires a non-empty name")
+        self.supported_tiers = _normalize_sequence_field(
+            self.supported_tiers,
+            "supported_tiers",
+        )
+        self.supported_routes = _normalize_sequence_field(
+            self.supported_routes,
+            "supported_routes",
+        )
         self.supported_tiers = tuple(
             tier if isinstance(tier, InputTier) else InputTier.from_value(tier)
             for tier in self.supported_tiers
@@ -33,10 +55,6 @@ class DeviceProfile:
             route if isinstance(route, RouteType) else RouteType.from_value(route)
             for route in self.supported_routes
         )
-        if not self.supported_tiers:
-            raise ValueError("DeviceProfile requires at least one supported tier")
-        if not self.supported_routes:
-            raise ValueError("DeviceProfile requires at least one supported route")
 
     @classmethod
     def from_dict(cls, data):
