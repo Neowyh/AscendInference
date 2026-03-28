@@ -9,6 +9,7 @@
 import pytest
 from unittest.mock import Mock, patch, MagicMock
 import time
+import inspect
 
 from benchmark.scenarios import (
     BenchmarkScenario,
@@ -147,6 +148,45 @@ class TestBenchmarkResult:
         assert result.resource_stats["cpu"]["avg"] == 30.0
         assert result.timestamp == 222.0
         assert result.metrics["execute"]["avg"] == 15.0
+
+    def test_constructor_and_setter_snapshot_nested_inputs(self):
+        metrics = {
+            "execute": {"avg": 12.0},
+            "fps": {"pure": 100.0, "e2e": 80.0},
+        }
+        config = {"nested": {"enabled": True}}
+        resource_stats = {"cpu": {"avg": 20.0}}
+
+        result = BenchmarkResult(
+            scenario_name="initial",
+            model_info=ModelInfo(name="test_model"),
+            metrics=metrics,
+            config=config,
+            resource_stats=resource_stats,
+        )
+
+        metrics["execute"]["avg"] = 99.0
+        config["nested"]["enabled"] = False
+        resource_stats["cpu"]["avg"] = 42.0
+
+        assert result.metrics["execute"]["avg"] == 12.0
+        assert result.config["nested"]["enabled"] is True
+        assert result.resource_stats["cpu"]["avg"] == 20.0
+
+        setter_metrics = {
+            "execute": {"avg": 15.0},
+            "fps": {"pure": 88.0, "e2e": 77.0},
+        }
+        result.metrics = setter_metrics
+        setter_metrics["execute"]["avg"] = 123.0
+
+        assert result.metrics["execute"]["avg"] == 15.0
+
+    def test_module_exposes_single_benchmark_result_definition(self):
+        import benchmark.scenarios as scenarios_module
+
+        source = inspect.getsource(scenarios_module)
+        assert source.count("class BenchmarkResult") == 1
 
 
 class TestModelSelectionScenario:

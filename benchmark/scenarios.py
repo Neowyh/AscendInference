@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 评测场景模块
 
@@ -11,6 +12,7 @@
 
 import os
 import time
+from copy import deepcopy
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Dict, List, Any, Optional, Union
@@ -35,20 +37,6 @@ class ModelInfo:
     input_width: int = 0
     input_height: int = 0
     resolution: str = ""
-
-
-@dataclass
-class BenchmarkResult:
-    """评测结果"""
-    scenario_name: str = ""
-    model_info: ModelInfo = field(default_factory=ModelInfo)
-    metrics: Dict[str, Any] = field(default_factory=dict)
-    strategies: List[str] = field(default_factory=list)
-    config: Dict[str, Any] = field(default_factory=dict)
-    resource_stats: Dict[str, Any] = field(default_factory=dict)
-    timestamp: float = field(default_factory=time.time)
-
-
 class BenchmarkScenario(ABC):
     """评测场景基类"""
     
@@ -495,7 +483,7 @@ class BenchmarkResult:
 
     @config.setter
     def config(self, value: Optional[Dict[str, Any]]) -> None:
-        config = dict(value or {})
+        config = deepcopy(value or {})
         execution_record = self.__dict__.get("execution_record")
         if execution_record is not None:
             execution_record.config = config
@@ -508,7 +496,7 @@ class BenchmarkResult:
 
     @resource_stats.setter
     def resource_stats(self, value: Optional[Dict[str, Any]]) -> None:
-        resource_stats = dict(value or {})
+        resource_stats = deepcopy(value or {})
         execution_record = self.__dict__.get("execution_record")
         if execution_record is not None:
             execution_record.resource_stats = resource_stats

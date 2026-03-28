@@ -45,20 +45,20 @@ def _split_legacy_metrics(metrics: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
     for key, value in metrics.items():
         if key == "fps" and isinstance(value, dict):
             if "pure" in value:
-                model_metrics.setdefault("fps", {})["pure"] = value["pure"]
+                model_metrics.setdefault("fps", {})["pure"] = deepcopy(value["pure"])
             if "e2e" in value:
-                system_metrics.setdefault("fps", {})["e2e"] = value["e2e"]
+                system_metrics.setdefault("fps", {})["e2e"] = deepcopy(value["e2e"])
             remaining = {k: v for k, v in value.items() if k not in {"pure", "e2e"}}
             if remaining:
-                model_metrics.setdefault("fps", {}).update(remaining)
+                model_metrics.setdefault("fps", {}).update(deepcopy(remaining))
             continue
 
         if key in model_stage_keys:
-            model_metrics[key] = value
+            model_metrics[key] = deepcopy(value)
         elif key in system_stage_keys:
-            system_metrics[key] = value
+            system_metrics[key] = deepcopy(value)
         else:
-            system_metrics[key] = value
+            system_metrics[key] = deepcopy(value)
 
     return {
         "model_metrics": model_metrics,
@@ -112,11 +112,11 @@ class ExecutionRecord:
             self.model_name = model_name
         elif getattr(self.model_info, "name", "") == "":
             self.model_name = ""
-        self.model_metrics = dict(model_metrics or {})
-        self.system_metrics = dict(system_metrics or {})
-        self.resource_stats = dict(resource_stats or {})
-        self.config = dict(config or {})
-        self.strategies = list(strategies or [])
+        self.model_metrics = deepcopy(model_metrics or {})
+        self.system_metrics = deepcopy(system_metrics or {})
+        self.resource_stats = deepcopy(resource_stats or {})
+        self.config = deepcopy(config or {})
+        self.strategies = deepcopy(strategies or [])
         self.timestamp = time.time() if timestamp is None else timestamp
 
     @property

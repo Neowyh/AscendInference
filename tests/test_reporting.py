@@ -138,3 +138,64 @@ def test_execution_record_model_info_name_updates_model_name_view():
 
     assert result.model_info.name == "renamed_model"
     assert result.execution_record.model_name == "renamed_model"
+
+
+def test_execution_record_constructor_snapshots_nested_inputs():
+    from reporting.models import ExecutionRecord
+
+    model_metrics = {"execute": {"avg": 12.0}}
+    system_metrics = {"fps": {"e2e": 55.5}}
+    resource_stats = {"cpu": {"avg": 20.0}}
+    config = {"nested": {"enabled": True}}
+
+    record = ExecutionRecord(
+        task_name="model_selection",
+        route_type="standard",
+        model_name="snapshot_model",
+        model_metrics=model_metrics,
+        system_metrics=system_metrics,
+        resource_stats=resource_stats,
+        config=config,
+    )
+
+    model_metrics["execute"]["avg"] = 99.0
+    system_metrics["fps"]["e2e"] = 88.8
+    resource_stats["cpu"]["avg"] = 42.0
+    config["nested"]["enabled"] = False
+
+    assert record.model_metrics["execute"]["avg"] == 12.0
+    assert record.system_metrics["fps"]["e2e"] == 55.5
+    assert record.resource_stats["cpu"]["avg"] == 20.0
+    assert record.config["nested"]["enabled"] is True
+
+
+def test_execution_record_from_legacy_metrics_snapshots_nested_inputs():
+    from reporting.models import ExecutionRecord
+
+    metrics = {
+        "execute": {"avg": 12.0},
+        "fps": {"pure": 83.3, "e2e": 55.5},
+        "iterations": {"test": 100},
+    }
+    resource_stats = {"cpu": {"avg": 20.0}}
+    config = {"nested": {"enabled": True}}
+
+    record = ExecutionRecord.from_legacy_metrics(
+        metrics,
+        task_name="model_selection",
+        route_type="standard",
+        model_name="snapshot_model",
+        resource_stats=resource_stats,
+        config=config,
+    )
+
+    metrics["execute"]["avg"] = 99.0
+    metrics["fps"]["pure"] = 1.0
+    resource_stats["cpu"]["avg"] = 42.0
+    config["nested"]["enabled"] = False
+
+    assert record.model_metrics["execute"]["avg"] == 12.0
+    assert record.model_metrics["fps"]["pure"] == 83.3
+    assert record.system_metrics["iterations"]["test"] == 100
+    assert record.resource_stats["cpu"]["avg"] == 20.0
+    assert record.config["nested"]["enabled"] is True
