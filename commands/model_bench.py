@@ -15,7 +15,8 @@ import argparse
 from typing import List, Optional
 
 from config import Config
-from benchmark import ModelSelectionScenario, BenchmarkResult
+from benchmark import ModelSelectionScenario, RouteExperimentScenario, BenchmarkResult
+from evaluations.routes import REMOTE_SENSING_ROUTES
 from evaluations.tiers import STANDARD_INPUT_TIERS
 from utils.logger import LoggerConfig
 
@@ -62,6 +63,8 @@ def create_parser() -> argparse.ArgumentParser:
         default=list(STANDARD_INPUT_TIERS),
         help='标准评测输入分档',
     )
+    parser.add_argument('--routes', nargs='+', choices=list(REMOTE_SENSING_ROUTES), help='遥感路线类型')
+    parser.add_argument('--image-size-tiers', nargs='+', help='遥感大图分档，例如 6K')
     
     return parser
 
@@ -113,14 +116,27 @@ def run_benchmark(args: argparse.Namespace) -> int:
     logger.info(f"迭代次数: {args.iterations}")
     logger.info(f"预热次数: {args.warmup}")
     
-    scenario = ModelSelectionScenario({
+    scenario_config = {
         'iterations': args.iterations,
         'warmup': args.warmup,
         'enable_monitoring': args.enable_monitoring,
         'device_id': args.device,
         'backend': args.backend,
         'input_tiers': list(args.input_tiers),
-    })
+    }
+    scenario_cls = ModelSelectionScenario
+    routes = getattr(args, 'routes', None)
+    image_size_tiers = getattr(args, 'image_size_tiers', None)
+    if not isinstance(routes, (list, tuple)):
+        routes = None
+    if not isinstance(image_size_tiers, (list, tuple)):
+        image_size_tiers = None
+    if routes or image_size_tiers:
+        scenario_cls = RouteExperimentScenario
+        scenario_config['routes'] = list(routes or REMOTE_SENSING_ROUTES)
+        scenario_config['image_size_tiers'] = list(image_size_tiers or ['6K'])
+
+    scenario = scenario_cls(scenario_config)
     
     results = scenario.run(args.models, args.images)
     

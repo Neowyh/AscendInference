@@ -15,6 +15,7 @@ from typing import List, Optional
 
 from config import Config
 from benchmark import StrategyValidationScenario, BenchmarkResult
+from evaluations.routes import REMOTE_SENSING_ROUTES
 from utils.logger import LoggerConfig
 
 
@@ -60,6 +61,8 @@ def create_parser() -> argparse.ArgumentParser:
     parser.add_argument('--format', choices=['text', 'json'], default='text', help='输出格式')
     parser.add_argument('--device', type=int, default=0, help='设备ID')
     parser.add_argument('--backend', choices=['pil', 'opencv'], default='pil', help='图像处理后端')
+    parser.add_argument('--routes', nargs='+', choices=list(REMOTE_SENSING_ROUTES), help='遥感路线类型')
+    parser.add_argument('--image-size-tiers', nargs='+', help='遥感大图分档，例如 6K')
     
     return parser
 
@@ -109,12 +112,23 @@ def run_benchmark(args: argparse.Namespace) -> int:
     logger.info(f"迭代次数: {args.iterations}")
     logger.info(f"预热次数: {args.warmup}")
     
+    routes = getattr(args, 'routes', None)
+    image_size_tiers = getattr(args, 'image_size_tiers', None)
+    if not isinstance(routes, (list, tuple)):
+        routes = None
+    if not isinstance(image_size_tiers, (list, tuple)):
+        image_size_tiers = None
+
     scenario = StrategyValidationScenario({
         'strategies': args.strategies,
         'iterations': args.iterations,
         'warmup': args.warmup,
         'threads': args.threads,
-        'batch_size': args.batch_size
+        'batch_size': args.batch_size,
+        'device_id': args.device,
+        'backend': args.backend,
+        'routes': list(routes or []),
+        'image_size_tiers': list(image_size_tiers or []),
     })
     
     results = scenario.run([args.model], [args.image])

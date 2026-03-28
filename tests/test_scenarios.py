@@ -17,6 +17,7 @@ from benchmark.scenarios import (
     BenchmarkResult,
     ModelInfo,
     ModelSelectionScenario,
+    RouteExperimentScenario,
     StrategyValidationScenario,
     ExtremePerformanceScenario
 )
@@ -499,6 +500,68 @@ class TestStrategyValidationScenario:
         assert result.execution_record.task_name == "baseline"
         assert result.strategies == ["baseline"]
         assert result.execution_record.strategies == ["baseline"]
+
+
+class TestRouteExperimentScenario:
+    def test_remote_sensing_route_matrix_includes_tiled_and_large_input_routes(self):
+        scenario = RouteExperimentScenario({"image_size_tiers": ["6K"]})
+
+        matrix = scenario.build_route_matrix(["small.om", "6k.om"], ["image_6k.jpg"])
+
+        route_types = {item["route_type"] for item in matrix}
+        assert route_types == {"tiled_route", "large_input_route"}
+
+    def test_route_experiment_scenario_run_expands_across_routes(self):
+        scenario = RouteExperimentScenario({"image_size_tiers": ["6K"]})
+        observed_calls = []
+
+        def fake_run_single_model(
+            model_path,
+            image_path,
+            input_tier=None,
+            runtime_resolution=None,
+            route_type=None,
+            image_size_tier=None,
+        ):
+            observed_calls.append(
+                {
+                    "model_path": model_path,
+                    "image_path": image_path,
+                    "route_type": route_type,
+                    "runtime_resolution": runtime_resolution,
+                    "image_size_tier": image_size_tier,
+                }
+            )
+            return BenchmarkResult(
+                scenario_name=scenario.name,
+                model_info=ModelInfo(name=model_path),
+                config={
+                    "route_type": route_type,
+                    "image_size_tier": image_size_tier,
+                    "runtime_resolution": runtime_resolution,
+                },
+            )
+
+        with patch.object(scenario, "_run_single_model", side_effect=fake_run_single_model):
+            results = scenario.run(["small.om"], ["image_6k.jpg"])
+
+        assert observed_calls == [
+            {
+                "model_path": "small.om",
+                "image_path": "image_6k.jpg",
+                "route_type": "tiled_route",
+                "runtime_resolution": None,
+                "image_size_tier": "6K",
+            },
+            {
+                "model_path": "small.om",
+                "image_path": "image_6k.jpg",
+                "route_type": "large_input_route",
+                "runtime_resolution": "6k",
+                "image_size_tier": "6K",
+            },
+        ]
+        assert [result.config["route_type"] for result in results] == ["tiled_route", "large_input_route"]
 
 
 class TestExtremePerformanceScenario:

@@ -6,6 +6,7 @@ from unittest.mock import Mock, patch
 import pytest
 
 from commands.model_bench import create_parser, run_benchmark
+from commands.strategy_bench import create_parser as create_strategy_parser, run_benchmark as run_strategy_benchmark
 from config import Config
 from config.strategy_config import EvaluationConfig
 from config.validator import ConfigValidator
@@ -194,6 +195,107 @@ def test_main_model_bench_parser_passes_explicit_input_tiers(monkeypatch):
 
     assert exit_code == 0
     assert captured["args"].input_tiers == ["720p", "4K"]
+
+
+def test_model_bench_parser_accepts_remote_sensing_route_args():
+    parser = create_parser()
+
+    args = parser.parse_args(
+        [
+            "small.om",
+            "--images",
+            "image_6k.jpg",
+            "--routes",
+            "tiled_route",
+            "large_input_route",
+            "--image-size-tiers",
+            "6K",
+        ]
+    )
+
+    assert args.routes == ["tiled_route", "large_input_route"]
+    assert args.image_size_tiers == ["6K"]
+
+
+def test_model_bench_run_uses_route_experiment_scenario_for_remote_sensing_args():
+    args = Mock(
+        models=["small.om"],
+        images=["image_6k.jpg"],
+        iterations=10,
+        warmup=2,
+        output=None,
+        format="text",
+        device=2,
+        backend="opencv",
+        enable_monitoring=False,
+        input_tiers=["720p"],
+        routes=["tiled_route", "large_input_route"],
+        image_size_tiers=["6K"],
+    )
+    scenario = Mock()
+    scenario.run.return_value = [Mock()]
+    scenario.generate_report.return_value = "report"
+
+    with patch("commands.model_bench.RouteExperimentScenario", return_value=scenario) as scenario_cls:
+        result = run_benchmark(args)
+
+    assert result == 0
+    scenario_cls.assert_called_once()
+    assert scenario_cls.call_args.args[0]["routes"] == ["tiled_route", "large_input_route"]
+    assert scenario_cls.call_args.args[0]["image_size_tiers"] == ["6K"]
+    assert scenario_cls.call_args.args[0]["device_id"] == 2
+    assert scenario_cls.call_args.args[0]["backend"] == "opencv"
+
+
+def test_strategy_bench_parser_accepts_remote_sensing_route_args():
+    parser = create_strategy_parser()
+
+    args = parser.parse_args(
+        [
+            "--model",
+            "small.om",
+            "--image",
+            "image_6k.jpg",
+            "--routes",
+            "tiled_route",
+            "large_input_route",
+            "--image-size-tiers",
+            "6K",
+        ]
+    )
+
+    assert args.routes == ["tiled_route", "large_input_route"]
+    assert args.image_size_tiers == ["6K"]
+
+
+def test_strategy_bench_run_preserves_device_backend_and_routes():
+    args = Mock(
+        model="small.om",
+        image="image_6k.jpg",
+        strategies=["multithread"],
+        iterations=20,
+        warmup=2,
+        threads=4,
+        batch_size=2,
+        output=None,
+        format="text",
+        device=5,
+        backend="opencv",
+        routes=["tiled_route"],
+        image_size_tiers=["6K"],
+    )
+    scenario = Mock()
+    scenario.run.return_value = [Mock()]
+    scenario.generate_report.return_value = "report"
+
+    with patch("commands.strategy_bench.StrategyValidationScenario", return_value=scenario) as scenario_cls:
+        result = run_strategy_benchmark(args)
+
+    assert result == 0
+    assert scenario_cls.call_args.args[0]["device_id"] == 5
+    assert scenario_cls.call_args.args[0]["backend"] == "opencv"
+    assert scenario_cls.call_args.args[0]["routes"] == ["tiled_route"]
+    assert scenario_cls.call_args.args[0]["image_size_tiers"] == ["6K"]
 
 
 if __name__ == "__main__":

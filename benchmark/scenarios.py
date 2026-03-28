@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Any, Optional, Union
 
 from config import Config
+from evaluations.routes import REMOTE_SENSING_ROUTES, RouteType
 from evaluations.tiers import InputTier, STANDARD_INPUT_TIERS
 from reporting.models import ExecutionRecord
 from utils.metrics import MetricsCollector, TimingRecord
@@ -168,6 +169,8 @@ class ModelSelectionScenario(BenchmarkScenario):
         image_path: str,
         input_tier: Optional[str] = None,
         runtime_resolution: Optional[str] = None,
+        route_type: Optional[str] = None,
+        image_size_tier: Optional[str] = None,
     ) -> Optional[BenchmarkResult]:
         """运行单个模型的评测
         
@@ -183,6 +186,10 @@ class ModelSelectionScenario(BenchmarkScenario):
         config = Config(model_path=model_path, device_id=self.device_id, backend=self.backend)
         if input_tier:
             config.evaluation.input_tier = input_tier
+        if route_type:
+            config.evaluation.route_type = route_type
+        if route_type == RouteType.LARGE_INPUT_ROUTE.value and runtime_resolution:
+            config.resolution = runtime_resolution
         config.strategies.multithread.enabled = False
         config.strategies.batch.enabled = False
         config.strategies.pipeline.enabled = False
@@ -241,6 +248,8 @@ class ModelSelectionScenario(BenchmarkScenario):
                     'warmup': self.warmup,
                     'image': image_path,
                     'input_tier': input_tier,
+                    'route_type': route_type,
+                    'image_size_tier': image_size_tier,
                     'runtime_resolution': config.resolution,
                     'input_tier_runtime_resolution': runtime_resolution,
                     'device_id': config.device_id,
@@ -356,6 +365,56 @@ class ModelSelectionScenario(BenchmarkScenario):
         lines.append("=" * 80)
         
         return "\n".join(lines)
+
+
+class RouteExperimentScenario(ModelSelectionScenario):
+    """遥感双路线对照评测场景。"""
+
+    name = "route_experiment"
+
+    def __init__(self, config: Optional[Dict] = None):
+        super().__init__(config)
+        self.routes = [
+            RouteType.from_value(route).value
+            for route in self.config.get('routes', REMOTE_SENSING_ROUTES)
+        ]
+        self.image_size_tiers = list(self.config.get('image_size_tiers', ['6K']))
+
+    def build_route_matrix(self, models: List[str], images: List[str]) -> List[Dict[str, Optional[str]]]:
+        matrix: List[Dict[str, Optional[str]]] = []
+        for model_path in models:
+            for image_path in images:
+                for image_size_tier in self.image_size_tiers:
+                    normalized_resolution = str(image_size_tier).lower()
+                    for route_type in self.routes:
+                        matrix.append(
+                            {
+                                "model_path": model_path,
+                                "image_path": image_path,
+                                "route_type": route_type,
+                                "image_size_tier": image_size_tier,
+                                "runtime_resolution": (
+                                    normalized_resolution
+                                    if route_type == RouteType.LARGE_INPUT_ROUTE.value
+                                    else None
+                                ),
+                            }
+                        )
+        return matrix
+
+    def run(self, models: List[str], images: List[str], **kwargs) -> List[BenchmarkResult]:
+        self._results = []
+        for entry in self.build_route_matrix(models, images):
+            result = self._run_single_model(
+                entry["model_path"],
+                entry["image_path"],
+                runtime_resolution=entry["runtime_resolution"],
+                route_type=entry["route_type"],
+                image_size_tier=entry["image_size_tier"],
+            )
+            if result:
+                self._results.append(result)
+        return self._results
 
 
 @dataclass(init=False)
@@ -586,6 +645,10 @@ class StrategyValidationScenario(BenchmarkScenario):
         ])
         self.iterations = self.config.get('iterations', 50)
         self.warmup = self.config.get('warmup', 3)
+        self.device_id = self.config.get('device_id', 0)
+        self.backend = self.config.get('backend', 'pil')
+        self.routes = list(self.config.get('routes', []))
+        self.image_size_tiers = list(self.config.get('image_size_tiers', []))
     
     def run(self, models: List[str], images: List[str], **kwargs) -> List[BenchmarkResult]:
         """运行策略验证评测
@@ -632,7 +695,9 @@ class StrategyValidationScenario(BenchmarkScenario):
         scenario = ModelSelectionScenario({
             'iterations': self.iterations,
             'warmup': self.warmup,
-            'enable_monitoring': False
+            'enable_monitoring': False,
+            'device_id': self.device_id,
+            'backend': self.backend,
         })
         
         results = scenario.run([model_path], [image_path])
@@ -658,7 +723,7 @@ class StrategyValidationScenario(BenchmarkScenario):
         Returns:
             BenchmarkResult: 策略结果
         """
-        config = Config(model_path=model_path)
+        config = Config(model_path=model_path, device_id=self.device_id, backend=self.backend)
         
         if strategy_name == 'multithread':
             config.strategies.multithread.enabled = True
