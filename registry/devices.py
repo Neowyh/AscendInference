@@ -61,8 +61,8 @@ class DeviceProfile:
         return cls(
             name=_require_field(data, "name"),
             device_id=data.get("device_id", ""),
-            supported_tiers=tuple(_require_field(data, "supported_tiers")),
-            supported_routes=tuple(_require_field(data, "supported_routes")),
+            supported_tiers=_require_field(data, "supported_tiers"),
+            supported_routes=_require_field(data, "supported_routes"),
             metadata=data.get("metadata", {}),
         )
 

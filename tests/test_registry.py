@@ -209,6 +209,22 @@ def test_device_profile_from_dict_requires_required_fields(payload):
         DeviceProfile.from_dict(payload)
 
 
+def test_device_profile_from_dict_string_scalar_matches_direct_construction_error():
+    payload = {
+        "name": "edge-device",
+        "supported_tiers": "720p",
+        "supported_routes": (RouteType.TILED_ROUTE,),
+    }
+
+    with pytest.raises(ValueError) as direct_error:
+        DeviceProfile(**payload)
+
+    with pytest.raises(ValueError) as from_dict_error:
+        DeviceProfile.from_dict(payload)
+
+    assert str(from_dict_error.value) == str(direct_error.value)
+
+
 @pytest.mark.parametrize(
     "payload",
     [
