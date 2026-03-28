@@ -117,6 +117,8 @@ def run_benchmark(args: argparse.Namespace) -> int:
         'iterations': args.iterations,
         'warmup': args.warmup,
         'enable_monitoring': args.enable_monitoring,
+        'device_id': args.device,
+        'backend': args.backend,
         'input_tiers': list(args.input_tiers),
     })
     

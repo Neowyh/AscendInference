@@ -381,7 +381,56 @@ class TestModelSelectionScenario:
 
         assert captured["resolution"] == "640x640"
         assert captured["input_tier"] == "1080p"
-        assert result.config["runtime_resolution"] == InputTier.TIER_1080P.runtime_resolution
+        assert result.config["runtime_resolution"] == "640x640"
+        assert result.config["input_tier_runtime_resolution"] == InputTier.TIER_1080P.runtime_resolution
+
+    def test_model_selection_scenario_uses_configured_device_and_backend(self, monkeypatch):
+        scenario = ModelSelectionScenario({"device_id": 3, "backend": "opencv"})
+        captured = {}
+
+        class FakeInference:
+            def __init__(self, config):
+                captured["device_id"] = config.device_id
+                captured["backend"] = config.backend
+                self.input_size = 640 * 640 * 3
+                self.output_size = 8400
+                self.input_width = 640
+                self.input_height = 640
+                self.resolution = config.resolution
+
+            def init(self):
+                return None
+
+            def run_inference(self, image_path, backend):
+                return None
+
+            def preprocess(self, image_path, backend):
+                return None
+
+            def execute(self):
+                return None
+
+            def get_result(self):
+                return None
+
+            def destroy(self):
+                return None
+
+        monkeypatch.setattr("src.inference.Inference", FakeInference)
+        monkeypatch.setattr("benchmark.scenarios.MetricsCollector", Mock(return_value=Mock(
+            finish_warmup=Mock(),
+            record=Mock(),
+            get_statistics=Mock(return_value={"fps": {"pure": 1.0, "e2e": 1.0}}),
+        )))
+        monkeypatch.setattr("benchmark.scenarios.SimpleResourceMonitor", Mock(return_value=Mock(
+            sample=Mock(),
+            get_stats=Mock(return_value={}),
+        )))
+
+        scenario._run_single_model("model.om", "image.jpg")
+
+        assert captured["device_id"] == 3
+        assert captured["backend"] == "opencv"
 
 
 class TestStrategyValidationScenario:

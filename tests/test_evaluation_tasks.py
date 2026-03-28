@@ -140,6 +140,31 @@ def test_model_bench_run_preserves_input_tiers_in_scenario_config():
     assert scenario_cls.call_args.args[0]["input_tiers"] == ["720p", "4K"]
 
 
+def test_model_bench_run_preserves_device_and_backend_in_scenario_config():
+    args = Mock(
+        models=["model.om"],
+        images=["image.jpg"],
+        iterations=10,
+        warmup=2,
+        output=None,
+        format="text",
+        device=3,
+        backend="opencv",
+        enable_monitoring=False,
+        input_tiers=["720p"],
+    )
+    scenario = Mock()
+    scenario.run.return_value = [Mock()]
+    scenario.generate_report.return_value = "report"
+
+    with patch("commands.model_bench.ModelSelectionScenario", return_value=scenario) as scenario_cls:
+        result = run_benchmark(args)
+
+    assert result == 0
+    assert scenario_cls.call_args.args[0]["device_id"] == 3
+    assert scenario_cls.call_args.args[0]["backend"] == "opencv"
+
+
 def test_main_model_bench_parser_passes_explicit_input_tiers(monkeypatch):
     import main as main_module
 

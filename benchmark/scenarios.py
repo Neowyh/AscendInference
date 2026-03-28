@@ -113,6 +113,8 @@ class ModelSelectionScenario(BenchmarkScenario):
         self.iterations = self.config.get('iterations', 100)
         self.warmup = self.config.get('warmup', 5)
         self.enable_monitoring = self.config.get('enable_monitoring', True)
+        self.device_id = self.config.get('device_id', 0)
+        self.backend = self.config.get('backend', 'pil')
         self.input_tiers = [
             InputTier.from_value(input_tier).value
             for input_tier in self.config.get('input_tiers', STANDARD_INPUT_TIERS)
@@ -178,7 +180,7 @@ class ModelSelectionScenario(BenchmarkScenario):
         """
         from src.inference import Inference
         
-        config = Config(model_path=model_path)
+        config = Config(model_path=model_path, device_id=self.device_id, backend=self.backend)
         if input_tier:
             config.evaluation.input_tier = input_tier
         config.strategies.multithread.enabled = False
@@ -239,7 +241,10 @@ class ModelSelectionScenario(BenchmarkScenario):
                     'warmup': self.warmup,
                     'image': image_path,
                     'input_tier': input_tier,
-                    'runtime_resolution': runtime_resolution or config.resolution,
+                    'runtime_resolution': config.resolution,
+                    'input_tier_runtime_resolution': runtime_resolution,
+                    'device_id': config.device_id,
+                    'backend': config.backend,
                 },
                 resource_stats=resource_stats
             )
