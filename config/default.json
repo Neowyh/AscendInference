@@ -11,5 +11,72 @@
   "max_detections": 100,
   "enable_logging": true,
   "log_level": "info",
-  "enable_profiling": false
+  "enable_profiling": false,
+  "warmup": 5,
+  "warmup_iterations": 5,
+  "strategies": {
+    "multithread": {
+      "enabled": false,
+      "num_threads": 4,
+      "work_stealing": true,
+      "dynamic_scaling": false,
+      "min_threads": 1,
+      "max_threads": 4,
+      "scale_up_threshold": 0.7,
+      "scale_down_threshold": 0.2
+    },
+    "batch": {
+      "enabled": false,
+      "batch_size": 4,
+      "timeout_ms": 10.0,
+      "dynamic_batch": false,
+      "max_batch_size": 16
+    },
+    "pipeline": {
+      "enabled": false,
+      "queue_size": 10,
+      "num_preprocess_threads": 2,
+      "num_infer_threads": 1,
+      "num_postprocess_threads": 1,
+      "batch_size": 4
+    },
+    "memory_pool": {
+      "enabled": false,
+      "pool_size": 10,
+      "growth_factor": 1.5,
+      "max_buffers": 20,
+      "device": "host"
+    },
+    "high_res": {
+      "enabled": false,
+      "tile_size": 640,
+      "overlap": 100,
+      "weight_fusion": true,
+      "overlap_ratio": 0.25
+    },
+    "async_io": {
+      "enabled": false,
+      "prefetch_size": 5,
+      "num_workers": 2
+    },
+    "cache": {
+      "enabled": false,
+      "max_size": 100,
+      "ttl_seconds": 300.0
+    }
+  },
+  "benchmark": {
+    "iterations": 100,
+    "warmup": 5,
+    "enable_profiling": true,
+    "enable_monitoring": true,
+    "output_format": "text",
+    "output_path": null
+  },
+  "model_info": {
+    "collect_input_size": true,
+    "collect_output_size": true,
+    "collect_params": false,
+    "collect_flops": false
+  }
 }

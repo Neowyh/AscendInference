@@ -5,6 +5,9 @@
 
 所有功能通过此入口调用：
 - infer: 推理（单张/批量/性能测试）
+- model-bench: 模型选型评测
+- strategy-bench: 策略验证评测
+- extreme-bench: 极限性能评测
 - check: 环境检查
 - enhance: 图像增强
 - package: 项目打包
@@ -20,7 +23,7 @@ from typing import Dict, List, Tuple, Any, Optional
 from config import Config, SUPPORTED_RESOLUTIONS, MAX_AI_CORES
 from commands import cmd_infer, cmd_check, cmd_enhance, cmd_package, cmd_config
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 
 
 def main():
@@ -101,6 +104,55 @@ def main():
     config_parser.add_argument('--validate', action='store_true', help='验证配置')
     config_parser.add_argument('--generate', metavar='PATH', help='生成默认配置文件')
     config_parser.set_defaults(func=cmd_config)
+    
+    # ========== 模型选型评测命令 ==========
+    model_bench_parser = subparsers.add_parser('model-bench', help='模型选型评测 - 对比不同模型性能')
+    model_bench_parser.add_argument('models', nargs='+', help='模型路径列表')
+    model_bench_parser.add_argument('--images', nargs='+', required=True, help='测试图像路径')
+    model_bench_parser.add_argument('--iterations', type=int, default=100, help='测试迭代次数 (默认: 100)')
+    model_bench_parser.add_argument('--warmup', type=int, default=5, help='预热次数 (默认: 5)')
+    model_bench_parser.add_argument('--output', '-o', help='报告输出路径')
+    model_bench_parser.add_argument('--format', choices=['text', 'json'], default='text', help='输出格式')
+    model_bench_parser.add_argument('--device', type=int, default=0, help='设备ID')
+    model_bench_parser.add_argument('--backend', choices=['pil', 'opencv'], default='pil', help='图像处理后端')
+    model_bench_parser.add_argument('--enable-monitoring', action='store_true', help='启用资源监控')
+    model_bench_parser.set_defaults(func=_cmd_model_bench)
+    
+    # ========== 策略验证评测命令 ==========
+    strategy_bench_parser = subparsers.add_parser('strategy-bench', help='策略验证评测 - 验证加速策略效果')
+    strategy_bench_parser.add_argument('--model', required=True, help='模型路径')
+    strategy_bench_parser.add_argument('--image', required=True, help='测试图像路径')
+    strategy_bench_parser.add_argument('--strategies', nargs='+', 
+                                        choices=['multithread', 'batch', 'pipeline', 'memory_pool', 'high_res'],
+                                        default=['multithread', 'batch', 'pipeline', 'memory_pool'],
+                                        help='要测试的策略')
+    strategy_bench_parser.add_argument('--iterations', type=int, default=50, help='测试迭代次数')
+    strategy_bench_parser.add_argument('--warmup', type=int, default=3, help='预热次数')
+    strategy_bench_parser.add_argument('--threads', type=int, default=4, help='多线程策略的线程数')
+    strategy_bench_parser.add_argument('--batch-size', type=int, default=4, help='批处理策略的批大小')
+    strategy_bench_parser.add_argument('--output', '-o', help='报告输出路径')
+    strategy_bench_parser.add_argument('--device', type=int, default=0, help='设备ID')
+    strategy_bench_parser.add_argument('--backend', choices=['pil', 'opencv'], default='pil', help='图像处理后端')
+    strategy_bench_parser.set_defaults(func=_cmd_strategy_bench)
+    
+    # ========== 极限性能评测命令 ==========
+    extreme_bench_parser = subparsers.add_parser('extreme-bench', help='极限性能评测 - 追求极限吞吐量')
+    extreme_bench_parser.add_argument('--model', required=True, help='模型路径')
+    extreme_bench_parser.add_argument('--images', nargs='+', required=True, help='测试图像路径或目录')
+    extreme_bench_parser.add_argument('--config', help='策略配置文件 (JSON)')
+    extreme_bench_parser.add_argument('--iterations', type=int, default=100, help='测试迭代次数')
+    extreme_bench_parser.add_argument('--warmup', type=int, default=5, help='预热次数')
+    extreme_bench_parser.add_argument('--duration', type=int, default=10, help='测试时长/秒')
+    extreme_bench_parser.add_argument('--output', '-o', help='报告输出路径')
+    extreme_bench_parser.add_argument('--device', type=int, default=0, help='设备ID')
+    extreme_bench_parser.add_argument('--backend', choices=['pil', 'opencv'], default='pil', help='图像处理后端')
+    extreme_bench_parser.add_argument('--enable-multithread', action='store_true', help='启用多线程策略')
+    extreme_bench_parser.add_argument('--threads', type=int, default=4, help='多线程数')
+    extreme_bench_parser.add_argument('--enable-batch', action='store_true', help='启用批处理策略')
+    extreme_bench_parser.add_argument('--batch-size', type=int, default=4, help='批大小')
+    extreme_bench_parser.add_argument('--enable-pipeline', action='store_true', help='启用流水线策略')
+    extreme_bench_parser.add_argument('--enable-memory-pool', action='store_true', help='启用内存池策略')
+    extreme_bench_parser.set_defaults(func=_cmd_extreme_bench)
 
     args = parser.parse_args()
 
@@ -109,6 +161,24 @@ def main():
         return 1
 
     return args.func(args)
+
+
+def _cmd_model_bench(args: argparse.Namespace) -> int:
+    """模型选型评测命令处理"""
+    from commands.model_bench import cmd_model_bench
+    return cmd_model_bench(args)
+
+
+def _cmd_strategy_bench(args: argparse.Namespace) -> int:
+    """策略验证评测命令处理"""
+    from commands.strategy_bench import cmd_strategy_bench
+    return cmd_strategy_bench(args)
+
+
+def _cmd_extreme_bench(args: argparse.Namespace) -> int:
+    """极限性能评测命令处理"""
+    from commands.extreme_bench import cmd_extreme_bench
+    return cmd_extreme_bench(args)
 
 
 if __name__ == "__main__":

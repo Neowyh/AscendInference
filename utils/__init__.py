@@ -9,6 +9,8 @@ Utils 模块
 from utils.profiler import profile_context, profile_decorator, profile_func, profile
 from utils.logger import LoggerConfig, get_logger
 from utils.memory_pool import MemoryPool, MultiSizeMemoryPool
+from utils.metrics import MetricsCollector, TimingRecord, StrategyMetrics, MultiThreadMetricsCollector
+from utils.monitor import ResourceMonitor, SimpleResourceMonitor, get_system_info
 from utils.exceptions import (
     InferenceError,
     ModelLoadError,
@@ -59,6 +61,13 @@ __all__ = [
     'get_logger',
     'MemoryPool',
     'MultiSizeMemoryPool',
+    'MetricsCollector',
+    'TimingRecord',
+    'StrategyMetrics',
+    'MultiThreadMetricsCollector',
+    'ResourceMonitor',
+    'SimpleResourceMonitor',
+    'get_system_info',
     'InferenceError',
     'ModelLoadError',
     'DeviceError',

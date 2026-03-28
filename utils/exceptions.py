@@ -93,3 +93,15 @@ class InputValidationError(InferenceError):
     """输入参数验证异常"""
     def __init__(self, message: str, error_code: int = 1009, original_error: Exception = None, details: dict = None):
         super().__init__(message, error_code, original_error, details)
+
+
+class BenchmarkError(InferenceError):
+    """评测异常"""
+    def __init__(self, message: str, error_code: int = 1010, original_error: Exception = None, details: dict = None):
+        super().__init__(message, error_code, original_error, details)
+
+
+class ResourceError(InferenceError):
+    """资源异常"""
+    def __init__(self, message: str, error_code: int = 1011, original_error: Exception = None, details: dict = None):
+        super().__init__(message, error_code, original_error, details)

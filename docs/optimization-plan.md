@@ -1,0 +1,859 @@
+# 昇腾推理工具优化实施计划
+
+**版本**: 1.0  
+**日期**: 2026-03-28  
+**基于**: refactoring-analysis.md  
+**状态**: 待执行
+
+---
+
+## 一、优化目标
+
+在不改变项目整体性能评测目标的前提下，通过以下优化提升项目质量：
+
+| 目标 | 指标 | 当前状态 | 目标状态 |
+|------|------|---------|---------|
+| 代码可维护性 | inference.py 行数 | 1470行 | < 300行/模块 |
+| 测试覆盖率 | 核心功能覆盖 | ~40% | > 80% |
+| 代码重复率 | 重复代码块 | 8处 | 0处 |
+| 异常处理一致性 | 统一异常风格 | 混合 | 100%异常 |
+
+---
+
+## 二、优化任务清单
+
+### 2.1 高优先级任务 (P0)
+
+#### 任务 O-001: 拆分 inference.py
+
+**问题描述**: 核心推理类过于庞大（1470行），职责不清晰
+
+**优化方案**:
+
+```
+src/inference/
+├── __init__.py          # 导出接口
+├── base.py              # Inference 基类 (~200行)
+├── preprocessor.py      # 预处理器 (~150行)
+├── executor.py          # 推理执行器 (~100行)
+├── postprocessor.py     # 后处理器 (~100行)
+├── multithread.py       # 多线程推理 (~200行)
+├── pipeline.py          # 流水线推理 (~200行)
+├── high_res.py          # 高分辨率推理 (~150行)
+└── utils.py             # 工具函数 (~100行)
+```
+
+**实施步骤**:
+
+1. **创建目录结构**
+   ```bash
+   mkdir -p src/inference
+   touch src/inference/__init__.py
+   ```
+
+2. **提取预处理器**
+   ```python
+   # src/inference/preprocessor.py
+   class Preprocessor:
+       def __init__(self, config: Config):
+           self.config = config
+           self.resolution = config.get_resolution(config.resolution)
+       
+       def process(self, image_data, backend: str = 'opencv') -> np.ndarray:
+           """预处理单张图像"""
+           pass
+       
+       def process_batch(self, image_list, backend: str = 'opencv') -> List[np.ndarray]:
+           """批量预处理"""
+           pass
+   ```
+
+3. **提取后处理器**
+   ```python
+   # src/inference/postprocessor.py
+   class Postprocessor:
+       def __init__(self, config: Config):
+           self.config = config
+       
+       def process(self, output_data: np.ndarray) -> np.ndarray:
+           """后处理单张结果"""
+           pass
+   ```
+
+4. **重构基类**
+   ```python
+   # src/inference/base.py
+   class Inference:
+       def __init__(self, config: Config):
+           self.config = config
+           self.preprocessor = Preprocessor(config)
+           self.postprocessor = Postprocessor(config)
+           self.executor = None
+       
+       def init(self) -> bool:
+           """初始化推理环境"""
+           pass
+       
+       def run_inference(self, image_data) -> np.ndarray:
+           """执行完整推理流程"""
+           pass
+   ```
+
+5. **更新导入**
+   ```python
+   # src/inference/__init__.py
+   from .base import Inference
+   from .multithread import MultithreadInference
+   from .pipeline import PipelineInference
+   from .high_res import HighResInference
+   
+   __all__ = ['Inference', 'MultithreadInference', 'PipelineInference', 'HighResInference']
+   ```
+
+**验收标准**:
+- [ ] inference.py 拆分为多个模块，每个模块 < 300行
+- [ ] 所有现有功能正常工作
+- [ ] 向后兼容现有导入路径
+- [ ] 单元测试通过
+
+**预计工作量**: 3天  
+**风险等级**: 中
+
+---
+
+#### 任务 O-002: 统一异常处理风格
+
+**问题描述**: 异常处理风格不统一（返回None/False/抛异常混合）
+
+**优化方案**:
+
+统一使用异常处理，定义清晰的异常层次结构
+
+**实施步骤**:
+
+1. **定义异常处理规范**
+   ```python
+   # docs/exception-guidelines.md
+   
+   ## 异常处理规范
+   
+   ### 何时抛出异常
+   - 资源初始化失败 → 抛出异常
+   - 参数验证失败 → 抛出异常
+   - 外部依赖不可用 → 抛出异常
+   - 业务逻辑错误 → 抛出异常
+   
+   ### 何时返回特殊值
+   - 查询操作无结果 → 返回 None
+   - 可选功能不可用 → 返回 False（记录日志）
+   ```
+
+2. **审查并修改代码**
+   
+   | 文件 | 位置 | 当前处理 | 修改为 |
+   |------|------|---------|--------|
+   | inference.py | init() | return False | raise DeviceInitError |
+   | inference.py | _load_model() | return False | raise ModelLoadError |
+   | scenarios.py | _run_single_model() | return None | raise BenchmarkError |
+
+3. **更新调用方代码**
+   ```python
+   # 修改前
+   if not inference.init():
+       return None
+   
+   # 修改后
+   try:
+       inference.init()
+   except DeviceInitError as e:
+       logger.error(f"初始化失败: {e}")
+       raise
+   ```
+
+**验收标准**:
+- [ ] 所有初始化方法抛出异常而非返回False
+- [ ] 调用方正确处理异常
+- [ ] 异常信息清晰明确
+
+**预计工作量**: 1天  
+**风险等级**: 低
+
+---
+
+#### 任务 O-003: 补充核心测试
+
+**问题描述**: 核心推理逻辑缺少测试
+
+**优化方案**:
+
+补充关键路径的单元测试
+
+**实施步骤**:
+
+1. **创建测试文件**
+   ```python
+   # tests/test_inference_core.py
+   
+   import pytest
+   from unittest.mock import Mock, patch, MagicMock
+   
+   class TestInferenceInit:
+       def test_init_success(self, mock_acl):
+           """测试成功初始化"""
+           pass
+       
+       def test_init_acl_unavailable(self):
+           """测试ACL不可用"""
+           pass
+       
+       def test_init_device_not_found(self):
+           """测试设备不存在"""
+           pass
+   
+   class TestPreprocessor:
+       def test_process_image_path(self):
+           """测试处理图像路径"""
+           pass
+       
+       def test_process_numpy_array(self):
+           """测试处理numpy数组"""
+           pass
+       
+       def test_process_invalid_input(self):
+           """测试无效输入"""
+           pass
+   ```
+
+2. **创建测试固件**
+   ```python
+   # tests/conftest.py
+   
+   @pytest.fixture
+   def mock_acl():
+       """Mock ACL环境"""
+       with patch('src.inference.HAS_ACL', True):
+           with patch('src.inference.init_acl') as mock:
+               mock.return_value = (Mock(), Mock())
+               yield mock
+   
+   @pytest.fixture
+   def sample_image():
+       """测试图像"""
+       return np.random.randint(0, 255, (640, 640, 3), dtype=np.uint8)
+   ```
+
+**验收标准**:
+- [ ] 核心推理测试覆盖 > 80%
+- [ ] 所有测试通过
+- [ ] 异常路径有测试
+
+**预计工作量**: 2天  
+**风险等级**: 低
+
+---
+
+### 2.2 中优先级任务 (P1)
+
+#### 任务 O-004: 提取公共预处理模块
+
+**问题描述**: 预处理逻辑在多处重复
+
+**优化方案**:
+
+提取统一的预处理模块
+
+**实施步骤**:
+
+1. **创建预处理模块**
+   ```python
+   # src/preprocessing/__init__.py
+   from .image_preprocessor import ImagePreprocessor
+   from .batch_preprocessor import BatchPreprocessor
+   
+   __all__ = ['ImagePreprocessor', 'BatchPreprocessor']
+   ```
+
+2. **实现图像预处理器**
+   ```python
+   # src/preprocessing/image_preprocessor.py
+   
+   class ImagePreprocessor:
+       def __init__(self, target_size: Tuple[int, int]):
+           self.target_size = target_size
+       
+       def load(self, image_data: Union[str, np.ndarray], backend: str) -> np.ndarray:
+           """加载图像"""
+           pass
+       
+       def resize(self, image: np.ndarray) -> np.ndarray:
+           """调整大小"""
+           pass
+       
+       def normalize(self, image: np.ndarray) -> np.ndarray:
+           """归一化"""
+           pass
+       
+       def process(self, image_data: Union[str, np.ndarray], backend: str = 'opencv') -> np.ndarray:
+           """完整预处理流程"""
+           image = self.load(image_data, backend)
+           image = self.resize(image)
+           image = self.normalize(image)
+           return image
+   ```
+
+3. **更新引用**
+   ```python
+   # 修改前
+   # inference.py 中包含完整的预处理逻辑
+   
+   # 修改后
+   from preprocessing import ImagePreprocessor
+   
+   class Inference:
+       def __init__(self, config: Config):
+           self.preprocessor = ImagePreprocessor(config.get_resolution(config.resolution))
+   ```
+
+**验收标准**:
+- [ ] 预处理逻辑集中在一个模块
+- [ ] 无重复代码
+- [ ] 接口清晰
+
+**预计工作量**: 1天  
+**风险等级**: 低
+
+---
+
+#### 任务 O-005: 实现线程池模式
+
+**问题描述**: 每次推理都创建新的线程和实例，开销大
+
+**优化方案**:
+
+使用线程池模式，复用线程和推理实例
+
+**实施步骤**:
+
+1. **创建推理池类**
+   ```python
+   # src/inference/pool.py
+   
+   from concurrent.futures import ThreadPoolExecutor
+   from typing import List, Any
+   from queue import Queue
+   import threading
+   
+   class InferencePool:
+       def __init__(self, config: Config, pool_size: int = 4):
+           self.config = config
+           self.pool_size = pool_size
+           self._executor = ThreadPoolExecutor(max_workers=pool_size)
+           self._instances: List[Inference] = []
+           self._instance_queue: Queue = Queue()
+           self._lock = threading.Lock()
+           self._initialized = False
+       
+       def init(self) -> None:
+           """初始化推理实例池"""
+           for i in range(self.pool_size):
+               instance = Inference(self.config)
+               if instance.init():
+                   self._instances.append(instance)
+                   self._instance_queue.put(instance)
+           self._initialized = True
+       
+       def _get_instance(self) -> Inference:
+           """获取一个推理实例"""
+           return self._instance_queue.get()
+       
+       def _return_instance(self, instance: Inference) -> None:
+           """归还推理实例"""
+           self._instance_queue.put(instance)
+       
+       def infer(self, image_data: Any) -> Any:
+           """执行推理"""
+           instance = self._get_instance()
+           try:
+               return instance.run_inference(image_data)
+           finally:
+               self._return_instance(instance)
+       
+       def infer_batch(self, image_list: List[Any]) -> List[Any]:
+           """批量推理"""
+           futures = [
+               self._executor.submit(self.infer, img)
+               for img in image_list
+           ]
+           return [f.result() for f in futures]
+       
+       def shutdown(self) -> None:
+           """关闭推理池"""
+           self._executor.shutdown()
+           for instance in self._instances:
+               instance.destroy()
+   ```
+
+2. **更新策略组件**
+   ```python
+   # src/strategies/multithread.py
+   
+   class MultithreadStrategy(Strategy):
+       def apply(self, context: InferenceContext) -> InferenceContext:
+           # 使用 InferencePool 替代手动线程管理
+           pool = InferencePool(context.config, self.config.num_threads)
+           context.set_state('inference_pool', pool)
+           return context
+   ```
+
+**验收标准**:
+- [ ] 线程池模式实现完成
+- [ ] 性能测试显示吞吐量提升
+- [ ] 无资源泄漏
+
+**预计工作量**: 2天  
+**风险等级**: 中
+
+---
+
+#### 任务 O-006: 添加配置验证器
+
+**问题描述**: 配置验证不充分
+
+**优化方案**:
+
+添加配置验证器，在配置加载时进行验证
+
+**实施步骤**:
+
+1. **创建配置验证器**
+   ```python
+   # config/validator.py
+   
+   import os
+   from typing import List, Tuple
+   from config import Config
+   
+   class ConfigValidator:
+       """配置验证器"""
+       
+       @staticmethod
+       def validate(config: Config) -> Tuple[bool, List[str]]:
+           """验证配置
+           
+           Returns:
+               Tuple[bool, List[str]]: (是否有效, 错误列表)
+           """
+           errors = []
+           warnings = []
+           
+           # 验证模型路径
+           if not config.model_path:
+               errors.append("模型路径不能为空")
+           elif not os.path.exists(config.model_path):
+               errors.append(f"模型文件不存在: {config.model_path}")
+           
+           # 验证设备ID
+           if config.device_id < 0:
+               errors.append(f"设备ID无效: {config.device_id}")
+           
+           # 验证分辨率
+           if not Config.is_supported_resolution(config.resolution):
+               warnings.append(f"分辨率可能不支持: {config.resolution}")
+           
+           # 验证线程数
+           if config.num_threads < 1:
+               errors.append(f"线程数必须大于0: {config.num_threads}")
+           elif config.num_threads > 16:
+               warnings.append(f"线程数过大可能导致性能下降: {config.num_threads}")
+           
+           # 验证策略配置
+           strategy_errors = ConfigValidator._validate_strategies(config)
+           errors.extend(strategy_errors)
+           
+           return len(errors) == 0, errors, warnings
+       
+       @staticmethod
+       def _validate_strategies(config: Config) -> List[str]:
+           """验证策略配置"""
+           errors = []
+           
+           # 检查冲突策略
+           enabled = config.get_enabled_strategies()
+           
+           if 'multithread' in enabled and 'pipeline' in enabled:
+               errors.append("多线程策略和流水线策略不建议同时启用")
+           
+           if config.strategies.batch.enabled:
+               if config.strategies.batch.batch_size < 1:
+                   errors.append("批大小必须大于0")
+               if config.strategies.batch.timeout_ms < 0:
+                   errors.append("超时时间不能为负")
+           
+           return errors
+   ```
+
+2. **集成到配置加载**
+   ```python
+   # config/config.py
+   
+   @classmethod
+   def from_json(cls, path: str, validate: bool = True) -> 'Config':
+       """从 JSON 文件加载配置"""
+       config = cls._load_from_json(path)
+       
+       if validate:
+           from config.validator import ConfigValidator
+           is_valid, errors, warnings = ConfigValidator.validate(config)
+           
+           for warning in warnings:
+               _logger.warning(warning)
+           
+           if not is_valid:
+               raise ConfigurationError(f"配置验证失败: {errors}")
+       
+       return config
+   ```
+
+**验收标准**:
+- [ ] 配置验证器实现完成
+- [ ] 无效配置被正确拒绝
+- [ ] 警告信息清晰
+
+**预计工作量**: 1天  
+**风险等级**: 低
+
+---
+
+#### 任务 O-007: 规范日志使用
+
+**问题描述**: 日志级别使用不当
+
+**优化方案**:
+
+规范日志级别使用，添加日志指南
+
+**实施步骤**:
+
+1. **创建日志使用指南**
+   ```python
+   # docs/logging-guidelines.md
+   
+   ## 日志级别使用规范
+   
+   | 级别 | 使用场景 | 示例 |
+   |------|---------|------|
+   | DEBUG | 详细调试信息 | 图像尺寸、中间结果 |
+   | INFO | 关键业务节点 | 模型加载成功、推理开始 |
+   | WARNING | 可恢复的异常情况 | 配置使用默认值、性能下降 |
+   | ERROR | 需要关注的错误 | 推理失败、资源不足 |
+   | CRITICAL | 严重错误 | 系统崩溃、数据丢失 |
+   ```
+
+2. **审查并修改日志**
+   
+   | 文件 | 当前代码 | 修改为 |
+   |------|---------|--------|
+   | inference.py | `logger.error(f"Worker error: {e}")` | `logger.exception(f"Worker error")` |
+   | inference.py | `logger.info(f"模型加载成功")` | `logger.debug(f"模型加载成功")` |
+   | scenarios.py | `logger.info(f"预热完成")` | `logger.debug(f"预热完成")` |
+
+3. **添加结构化日志**
+   ```python
+   # utils/structured_logger.py
+   
+   import logging
+   import json
+   from typing import Any, Dict
+   
+   class StructuredLogger:
+       def __init__(self, name: str):
+           self.logger = logging.getLogger(name)
+       
+       def log(self, level: int, message: str, **kwargs: Any) -> None:
+           """结构化日志"""
+           extra = {'extra': kwargs} if kwargs else {}
+           self.logger.log(level, message, **extra)
+       
+       def info(self, message: str, **kwargs: Any) -> None:
+           self.log(logging.INFO, message, **kwargs)
+       
+       def error(self, message: str, **kwargs: Any) -> None:
+           self.log(logging.ERROR, message, **kwargs)
+   ```
+
+**验收标准**:
+- [ ] 日志级别使用规范
+- [ ] 关键操作有日志
+- [ ] 日志信息完整
+
+**预计工作量**: 1天  
+**风险等级**: 低
+
+---
+
+### 2.3 低优先级任务 (P2)
+
+#### 任务 O-008: 优化动态批处理
+
+**问题描述**: 动态批处理效率低
+
+**优化方案**:
+
+实现更高效的动态批处理算法
+
+**实施步骤**:
+
+1. **实现自适应批大小**
+   ```python
+   # src/strategies/adaptive_batch.py
+   
+   class AdaptiveBatchStrategy(Strategy):
+       def __init__(self, config: BatchStrategyConfig):
+           super().__init__(config)
+           self._current_batch_size = config.batch_size
+           self._performance_history = []
+       
+       def _adjust_batch_size(self, latency: float) -> None:
+           """根据延迟调整批大小"""
+           if latency > self._target_latency:
+               self._current_batch_size = max(1, self._current_batch_size - 1)
+           elif latency < self._target_latency * 0.8:
+               self._current_batch_size = min(
+                   self.config.max_batch_size,
+                   self._current_batch_size + 1
+               )
+   ```
+
+2. **实现优先级队列**
+   ```python
+   import heapq
+   
+   class PriorityBatchQueue:
+       def __init__(self):
+           self._queue = []
+           self._counter = 0
+       
+       def push(self, item: Any, priority: int = 0) -> None:
+           heapq.heappush(self._queue, (priority, self._counter, item))
+           self._counter += 1
+       
+       def pop_batch(self, batch_size: int) -> List[Any]:
+           batch = []
+           for _ in range(min(batch_size, len(self._queue))):
+               _, _, item = heapq.heappop(self._queue)
+               batch.append(item)
+           return batch
+   ```
+
+**验收标准**:
+- [ ] 自适应批大小实现
+- [ ] 性能提升 > 10%
+- [ ] 无功能回归
+
+**预计工作量**: 2天  
+**风险等级**: 中
+
+---
+
+#### 任务 O-009: 实现预处理并行化
+
+**问题描述**: 图像预处理可并行化
+
+**优化方案**:
+
+支持预处理并行化
+
+**实施步骤**:
+
+1. **创建并行预处理器**
+   ```python
+   # src/preprocessing/parallel_preprocessor.py
+   
+   from concurrent.futures import ThreadPoolExecutor
+   from typing import List, Callable
+   
+   class ParallelPreprocessor:
+       def __init__(self, num_workers: int = 4):
+           self._executor = ThreadPoolExecutor(max_workers=num_workers)
+           self._preprocessor = ImagePreprocessor()
+       
+       def process_batch(
+           self, 
+           image_list: List[Any], 
+           backend: str = 'opencv'
+       ) -> List[np.ndarray]:
+           """并行批量预处理"""
+           futures = [
+               self._executor.submit(
+                   self._preprocessor.process, 
+                   img, 
+                   backend
+               )
+               for img in image_list
+           ]
+           return [f.result() for f in futures]
+       
+       def shutdown(self) -> None:
+           self._executor.shutdown()
+   ```
+
+**验收标准**:
+- [ ] 并行预处理实现
+- [ ] 批量处理性能提升 > 30%
+- [ ] 内存使用稳定
+
+**预计工作量**: 2天  
+**风险等级**: 中
+
+---
+
+#### 任务 O-010: 补充完整 API 文档
+
+**问题描述**: API 文档不完整
+
+**优化方案**:
+
+补充完整的 docstring 和 API 文档
+
+**实施步骤**:
+
+1. **添加完整 docstring**
+   ```python
+   def run_inference(
+       self, 
+       image_data: Union[str, np.ndarray, PILImage], 
+       backend: str = 'opencv'
+   ) -> np.ndarray:
+       """执行完整推理流程
+       
+       Args:
+           image_data: 图像数据，支持以下格式：
+               - str: 图像文件路径
+               - np.ndarray: RGB格式的numpy数组，shape=(H, W, C)
+               - PILImage: PIL图像对象
+           backend: 图像处理后端，可选 'pil' 或 'opencv'
+       
+       Returns:
+           np.ndarray: 推理结果，shape取决于模型输出
+       
+       Raises:
+           PreprocessError: 图像预处理失败
+           ACLError: ACL推理执行失败
+           PostprocessError: 结果获取失败
+       
+       Example:
+           >>> inference = Inference(config)
+           >>> inference.init()
+           >>> result = inference.run_inference("test.jpg")
+           >>> print(result.shape)
+       """
+   ```
+
+2. **生成 API 文档**
+   ```bash
+   # 使用 Sphinx 生成文档
+   sphinx-apidoc -o docs/api src/
+   ```
+
+**验收标准**:
+- [ ] 所有公共 API 有完整 docstring
+- [ ] API 文档生成成功
+- [ ] 示例代码可运行
+
+**预计工作量**: 2天  
+**风险等级**: 低
+
+---
+
+## 三、实施时间表
+
+### 第一阶段：核心重构 (第1周)
+
+| 日期 | 任务 | 负责人 | 状态 |
+|------|------|--------|------|
+| Day 1-2 | O-001 拆分 inference.py | - | 待执行 |
+| Day 3 | O-002 统一异常处理 | - | 待执行 |
+| Day 4-5 | O-003 补充核心测试 | - | 待执行 |
+
+### 第二阶段：质量提升 (第2周)
+
+| 日期 | 任务 | 负责人 | 状态 |
+|------|------|--------|------|
+| Day 1 | O-004 提取公共预处理模块 | - | 待执行 |
+| Day 2-3 | O-005 实现线程池模式 | - | 待执行 |
+| Day 4 | O-006 添加配置验证器 | - | 待执行 |
+| Day 5 | O-007 规范日志使用 | - | 待执行 |
+
+### 第三阶段：持续优化 (第3周+)
+
+| 日期 | 任务 | 负责人 | 状态 |
+|------|------|--------|------|
+| Day 1-2 | O-008 优化动态批处理 | - | 待执行 |
+| Day 3-4 | O-009 实现预处理并行化 | - | 待执行 |
+| Day 5+ | O-010 补充完整 API 文档 | - | 待执行 |
+
+---
+
+## 四、验收标准
+
+### 4.1 功能验收
+
+- [ ] 所有现有功能正常工作
+- [ ] 向后兼容现有 API
+- [ ] 所有测试通过
+
+### 4.2 性能验收
+
+- [ ] 推理性能不低于优化前
+- [ ] 内存使用不增加
+- [ ] 吞吐量有提升
+
+### 4.3 质量验收
+
+- [ ] 代码覆盖率 > 80%
+- [ ] 无重复代码
+- [ ] 日志规范
+- [ ] 文档完整
+
+---
+
+## 五、风险评估
+
+| 风险 | 可能性 | 影响 | 缓解措施 | 应急预案 |
+|------|--------|------|---------|---------|
+| 重构影响现有功能 | 高 | 高 | 充分测试，逐步迁移 | 回滚到上一版本 |
+| ACL 依赖导致测试困难 | 中 | 中 | 使用 Mock 对象 | 跳过依赖测试 |
+| 多线程重构引入并发问题 | 中 | 高 | 并发测试，代码审查 | 禁用多线程功能 |
+| 性能优化效果不明显 | 低 | 中 | 基准测试对比 | 保留原有实现 |
+
+---
+
+## 六、回滚方案
+
+### 6.1 代码回滚
+
+```bash
+# 回滚到指定版本
+git checkout <commit_hash>
+
+# 恢复配置
+tar -xzf backup/config_<date>.tar.gz -C /
+```
+
+### 6.2 功能开关
+
+```python
+# config/default.json
+{
+    "features": {
+        "use_inference_pool": false,  # 禁用线程池
+        "use_parallel_preprocess": false,  # 禁用并行预处理
+        "use_adaptive_batch": false  # 禁用自适应批处理
+    }
+}
+```
+
+---
+
+*计划创建时间: 2026-03-28*
+*基于文档: refactoring-analysis.md*
