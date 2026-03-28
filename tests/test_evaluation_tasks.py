@@ -1,5 +1,10 @@
+import json
+from pathlib import Path
+
 import pytest
 
+from config import Config
+from config.validator import ConfigValidator
 from evaluations.routes import RouteType
 from evaluations.tasks import EvaluationTask
 from evaluations.tiers import InputTier
@@ -53,6 +58,44 @@ def test_evaluation_task_rejects_unsupported_route():
             input_tier=InputTier.TIER_720P,
             route_type=RouteType.LARGE_INPUT_ROUTE,
         )
+
+
+def test_evaluation_templates_exist_and_expose_evaluation_block():
+    base_dir = Path(__file__).resolve().parents[1] / "config" / "evaluation"
+
+    standard_path = base_dir / "default_standard_eval.json"
+    remote_sensing_path = base_dir / "default_remote_sensing_eval.json"
+
+    assert standard_path.exists()
+    assert remote_sensing_path.exists()
+
+    standard_data = json.loads(standard_path.read_text(encoding="utf-8"))
+    remote_sensing_data = json.loads(remote_sensing_path.read_text(encoding="utf-8"))
+
+    assert standard_data["evaluation"]["input_tier"] == "720p"
+    assert standard_data["evaluation"]["route_type"] == "tiled_route"
+    assert remote_sensing_data["evaluation"]["input_tier"] == "4K"
+    assert remote_sensing_data["evaluation"]["route_type"] == "large_input_route"
+
+
+def test_large_input_route_requires_large_resolution(monkeypatch):
+    config = Config(
+        model_path="models/yolov8s.om",
+        resolution="640x640",
+    )
+    config.evaluation = {
+        "input_tier": "720p",
+        "route_type": "large_input_route",
+        "report_format": "json",
+        "archive_enabled": True,
+    }
+
+    monkeypatch.setattr("config.validator.os.path.exists", lambda _: True)
+
+    result = ConfigValidator.validate(config)
+
+    assert result.is_valid is False
+    assert any("large_input_route" in error for error in result.errors)
 
 
 if __name__ == "__main__":

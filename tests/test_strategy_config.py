@@ -6,6 +6,9 @@
 测试 config/strategy_config.py 中的核心功能
 """
 
+import json
+from pathlib import Path
+
 import pytest
 
 from config.strategy_config import (
@@ -16,6 +19,7 @@ from config.strategy_config import (
     HighResStrategyConfig,
     AsyncIOStrategyConfig,
     CacheStrategyConfig,
+    EvaluationConfig,
     StrategyConfig,
     BenchmarkConfig,
     ModelInfoConfig
@@ -320,6 +324,51 @@ class TestBenchmarkConfig:
         assert data['warmup'] == 3
 
 
+class TestEvaluationConfig:
+    """EvaluationConfig 娴嬭瘯"""
+
+    def test_default_values(self):
+        """娴嬭瘯榛樿鍊?"""
+        config = EvaluationConfig()
+
+        assert config.input_tier == "720p"
+        assert config.route_type == "tiled_route"
+        assert config.report_format == "text"
+        assert config.archive_enabled is False
+
+    def test_from_dict(self):
+        """娴嬭瘯浠庡瓧鍏稿垱寤?"""
+        data = {
+            "input_tier": "4K",
+            "route_type": "large_input_route",
+            "report_format": "json",
+            "archive_enabled": True,
+        }
+
+        config = EvaluationConfig.from_dict(data)
+
+        assert config.input_tier == "4K"
+        assert config.route_type == "large_input_route"
+        assert config.report_format == "json"
+        assert config.archive_enabled is True
+
+    def test_to_dict(self):
+        """娴嬭瘯杞崲涓哄瓧鍏?"""
+        config = EvaluationConfig(
+            input_tier="1080p",
+            route_type="tiled_route",
+            report_format="markdown",
+            archive_enabled=True,
+        )
+
+        data = config.to_dict()
+
+        assert data["input_tier"] == "1080p"
+        assert data["route_type"] == "tiled_route"
+        assert data["report_format"] == "markdown"
+        assert data["archive_enabled"] is True
+
+
 class TestModelInfoConfig:
     """ModelInfoConfig 测试"""
     
@@ -355,9 +404,11 @@ class TestConfigIntegration:
         assert hasattr(config, 'strategies')
         assert hasattr(config, 'benchmark')
         assert hasattr(config, 'model_info')
+        assert hasattr(config, 'evaluation')
         
         assert isinstance(config.strategies, StrategyConfig)
         assert isinstance(config.benchmark, BenchmarkConfig)
+        assert isinstance(config.evaluation, EvaluationConfig)
     
     def test_config_to_dict(self):
         """测试 Config 转换为字典"""
@@ -365,12 +416,28 @@ class TestConfigIntegration:
         
         config = Config()
         config.strategies.multithread.enabled = True
+        config.evaluation.input_tier = "4K"
+        config.evaluation.route_type = "large_input_route"
         
         data = config.to_dict()
         
         assert 'strategies' in data
         assert 'benchmark' in data
+        assert 'evaluation' in data
         assert data['strategies']['multithread']['enabled'] is True
+        assert data['evaluation']['input_tier'] == "4K"
+
+    def test_config_from_json_loads_evaluation(self):
+        """娴嬭瘯 Config 浠?JSON 鍔犺浇璇勬祴閰嶇疆"""
+        from config import Config
+
+        config_file = Path(__file__).resolve().parents[1] / "config" / "evaluation" / "default_remote_sensing_eval.json"
+        config = Config.from_json(str(config_file))
+
+        assert config.evaluation.input_tier == "4K"
+        assert config.evaluation.route_type == "large_input_route"
+        assert config.evaluation.report_format == "json"
+        assert config.evaluation.archive_enabled is True
     
     def test_config_get_enabled_strategies(self):
         """测试 Config 获取启用的策略"""

@@ -15,6 +15,8 @@ from typing import List, Tuple, Dict, Any, Optional
 from dataclasses import dataclass
 
 from config import Config
+from evaluations.routes import RouteType
+from evaluations.tiers import InputTier
 from utils.logger import LoggerConfig, get_logger
 from utils.exceptions import ConfigurationError
 
@@ -63,6 +65,7 @@ class ConfigValidator:
         ConfigValidator._validate_strategies(config, errors, warnings)
         ConfigValidator._validate_batch(config, errors, warnings)
         ConfigValidator._validate_tile(config, errors, warnings)
+        ConfigValidator._validate_evaluation(config, errors, warnings)
         
         is_valid = len(errors) == 0
         
@@ -218,6 +221,49 @@ class ConfigValidator:
             errors.append(f"重叠区域不能为负: {config.overlap}")
         if config.overlap >= config.tile_size:
             errors.append(f"重叠区域 ({config.overlap}) 必须小于分块大小 ({config.tile_size})")
+
+    @staticmethod
+    def _validate_evaluation(config: Config, errors: List[str], warnings: List[str]) -> None:
+        """楠岃瘉璇勬祴閰嶇疆"""
+        evaluation = getattr(config, 'evaluation', None)
+        if evaluation is None:
+            errors.append("璇勬祴閰嶇疆涓嶈兘涓虹┖")
+            return
+
+        def _get_value(name: str):
+            if isinstance(evaluation, dict):
+                return evaluation.get(name)
+            return getattr(evaluation, name, None)
+
+        try:
+            input_tier = InputTier.from_value(_get_value('input_tier'))
+        except Exception as exc:
+            errors.append(f"涓嶆敮鎸佺殑杈撳叆鍒嗗烟: {_get_value('input_tier')}锛岄敊璇?{exc}")
+            return
+
+        try:
+            route_type = RouteType.from_value(_get_value('route_type'))
+        except Exception as exc:
+            errors.append(f"涓嶆敮鎸佺殑璺嚎绫诲瀷: {_get_value('route_type')}锛岄敊璇?{exc}")
+            return
+
+        report_format = _get_value('report_format')
+        if not report_format:
+            errors.append("鎶ュ憡鏍煎紡涓嶈兘涓虹┖")
+        elif report_format not in {'text', 'json', 'markdown'}:
+            errors.append(f"涓嶆敮鎸佺殑鎶ュ憡鏍煎紡: {report_format}")
+
+        archive_enabled = _get_value('archive_enabled')
+        if not isinstance(archive_enabled, bool):
+            errors.append("褰掓。寮€鍏冲繀椤绘槸甯搁噺甯冨皵鍊?")
+
+        if route_type == RouteType.LARGE_INPUT_ROUTE:
+            min_width, min_height = Config.get_resolution(InputTier.TIER_4K.runtime_resolution)
+            width, height = Config.get_resolution(config.resolution)
+            if input_tier != InputTier.TIER_4K or width < min_width or height < min_height:
+                errors.append(
+                    "large_input_route 瑕佹眰 4K 杈撳叆鍒嗗烟鍜?4k6k 鍙婁互涓婄殑鍒嗚鲸鐜?"
+                )
 
 
 def validate_config(config: Config, raise_on_error: bool = True) -> ValidationResult:

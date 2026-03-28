@@ -16,7 +16,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import Dict, Tuple, Any, Optional
 
-from config.strategy_config import StrategyConfig, BenchmarkConfig, ModelInfoConfig
+from config.strategy_config import StrategyConfig, BenchmarkConfig, ModelInfoConfig, EvaluationConfig
 
 
 _logger = logging.getLogger('ascend_inference.config')
@@ -77,6 +77,7 @@ class Config:
     strategies: StrategyConfig = field(default_factory=StrategyConfig)
     benchmark: BenchmarkConfig = field(default_factory=BenchmarkConfig)
     model_info: ModelInfoConfig = field(default_factory=ModelInfoConfig)
+    evaluation: EvaluationConfig = field(default_factory=EvaluationConfig)
     
     warmup: int = 5
     warmup_iterations: int = 5
@@ -128,6 +129,11 @@ class Config:
             
             if 'model_info' in data:
                 config.model_info = ModelInfoConfig.from_dict(data['model_info'])
+
+            if 'evaluation' in data:
+                config.evaluation = EvaluationConfig.from_dict(data['evaluation'])
+            elif any(key in data for key in ('input_tier', 'route_type', 'report_format', 'archive_enabled')):
+                config.evaluation = EvaluationConfig.from_dict(data)
             
             return config
         except Exception as e:
@@ -158,7 +164,14 @@ class Config:
             'warmup_iterations': self.warmup_iterations,
             'strategies': self.strategies.to_dict(),
             'benchmark': self.benchmark.to_dict(),
-            'model_info': self.model_info.to_dict()
+            'model_info': self.model_info.to_dict(),
+            'evaluation': (
+                self.evaluation.to_dict()
+                if hasattr(self.evaluation, 'to_dict')
+                else dict(self.evaluation)
+                if isinstance(self.evaluation, dict)
+                else dict(vars(self.evaluation))
+            )
         }
     
     def apply_overrides(self, **kwargs: Any) -> None:
