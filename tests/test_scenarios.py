@@ -11,6 +11,7 @@ from unittest.mock import Mock, patch, MagicMock
 import time
 import inspect
 
+from evaluations.tiers import InputTier
 from benchmark.scenarios import (
     BenchmarkScenario,
     BenchmarkResult,
@@ -258,6 +259,75 @@ class TestModelSelectionScenario:
         
         scenario._results = [BenchmarkResult(scenario_name="test")]
         assert len(scenario.get_results()) == 1
+
+    def test_model_selection_scenario_expands_across_standard_input_tiers(self):
+        scenario = ModelSelectionScenario()
+
+        matrix = scenario.build_matrix(["model.om"], ["image.jpg"])
+
+        assert len(matrix) == 3
+        assert [item["input_tier"] for item in matrix] == ["720p", "1080p", "4K"]
+
+    def test_model_selection_scenario_build_matrix_maps_runtime_resolution(self):
+        scenario = ModelSelectionScenario({"input_tiers": ["720p", "4K"]})
+
+        matrix = scenario.build_matrix(["model.om"], ["image.jpg"])
+
+        assert matrix == [
+            {
+                "model_path": "model.om",
+                "image_path": "image.jpg",
+                "input_tier": "720p",
+                "runtime_resolution": InputTier.TIER_720P.runtime_resolution,
+            },
+            {
+                "model_path": "model.om",
+                "image_path": "image.jpg",
+                "input_tier": "4K",
+                "runtime_resolution": InputTier.TIER_4K.runtime_resolution,
+            },
+        ]
+
+    def test_model_selection_scenario_run_calls_single_model_for_each_input_tier(self):
+        scenario = ModelSelectionScenario({"input_tiers": ["720p", "1080p"]})
+        observed_calls = []
+
+        def fake_run_single_model(model_path, image_path, input_tier=None, runtime_resolution=None):
+            observed_calls.append(
+                {
+                    "model_path": model_path,
+                    "image_path": image_path,
+                    "input_tier": input_tier,
+                    "runtime_resolution": runtime_resolution,
+                }
+            )
+            return BenchmarkResult(
+                scenario_name=scenario.name,
+                model_info=ModelInfo(name=model_path),
+                config={
+                    "input_tier": input_tier,
+                    "runtime_resolution": runtime_resolution,
+                },
+            )
+
+        with patch.object(scenario, "_run_single_model", side_effect=fake_run_single_model):
+            results = scenario.run(["model.om"], ["image.jpg"])
+
+        assert observed_calls == [
+            {
+                "model_path": "model.om",
+                "image_path": "image.jpg",
+                "input_tier": "720p",
+                "runtime_resolution": InputTier.TIER_720P.runtime_resolution,
+            },
+            {
+                "model_path": "model.om",
+                "image_path": "image.jpg",
+                "input_tier": "1080p",
+                "runtime_resolution": InputTier.TIER_1080P.runtime_resolution,
+            },
+        ]
+        assert [result.config["input_tier"] for result in results] == ["720p", "1080p"]
 
 
 class TestStrategyValidationScenario:

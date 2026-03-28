@@ -16,6 +16,7 @@ from typing import List, Optional
 
 from config import Config
 from benchmark import ModelSelectionScenario, BenchmarkResult
+from evaluations.tiers import STANDARD_INPUT_TIERS
 from utils.logger import LoggerConfig
 
 
@@ -54,6 +55,7 @@ def create_parser() -> argparse.ArgumentParser:
     parser.add_argument('--device', type=int, default=0, help='设备ID (默认: 0)')
     parser.add_argument('--backend', choices=['pil', 'opencv'], default='pil', help='图像处理后端')
     parser.add_argument('--enable-monitoring', action='store_true', help='启用资源监控')
+    parser.add_argument('--input-tiers', nargs='+', default=list(STANDARD_INPUT_TIERS), help='标准评测输入分档')
     
     return parser
 
@@ -108,7 +110,8 @@ def run_benchmark(args: argparse.Namespace) -> int:
     scenario = ModelSelectionScenario({
         'iterations': args.iterations,
         'warmup': args.warmup,
-        'enable_monitoring': args.enable_monitoring
+        'enable_monitoring': args.enable_monitoring,
+        'input_tiers': list(args.input_tiers),
     })
     
     results = scenario.run(args.models, args.images)

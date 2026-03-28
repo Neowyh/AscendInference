@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Any, Optional, Union
 
 from config import Config
+from evaluations.tiers import InputTier, STANDARD_INPUT_TIERS
 from reporting.models import ExecutionRecord
 from utils.metrics import MetricsCollector, TimingRecord
 from utils.monitor import ResourceMonitor, SimpleResourceMonitor
@@ -112,6 +113,27 @@ class ModelSelectionScenario(BenchmarkScenario):
         self.iterations = self.config.get('iterations', 100)
         self.warmup = self.config.get('warmup', 5)
         self.enable_monitoring = self.config.get('enable_monitoring', True)
+        self.input_tiers = [
+            InputTier.from_value(input_tier).value
+            for input_tier in self.config.get('input_tiers', STANDARD_INPUT_TIERS)
+        ]
+
+    def build_matrix(self, models: List[str], images: List[str]) -> List[Dict[str, str]]:
+        """按标准输入分档展开评测矩阵。"""
+        matrix: List[Dict[str, str]] = []
+        for model_path in models:
+            for image_path in images:
+                for input_tier in self.input_tiers:
+                    tier = InputTier.from_value(input_tier)
+                    matrix.append(
+                        {
+                            "model_path": model_path,
+                            "image_path": image_path,
+                            "input_tier": tier.value,
+                            "runtime_resolution": tier.runtime_resolution,
+                        }
+                    )
+        return matrix
     
     def run(self, models: List[str], images: List[str], **kwargs) -> List[BenchmarkResult]:
         """运行模型选型评测
@@ -126,15 +148,25 @@ class ModelSelectionScenario(BenchmarkScenario):
         """
         self._results = []
         
-        for model_path in models:
-            for image_path in images:
-                result = self._run_single_model(model_path, image_path)
-                if result:
-                    self._results.append(result)
+        for entry in self.build_matrix(models, images):
+            result = self._run_single_model(
+                entry["model_path"],
+                entry["image_path"],
+                input_tier=entry["input_tier"],
+                runtime_resolution=entry["runtime_resolution"],
+            )
+            if result:
+                self._results.append(result)
         
         return self._results
     
-    def _run_single_model(self, model_path: str, image_path: str) -> Optional[BenchmarkResult]:
+    def _run_single_model(
+        self,
+        model_path: str,
+        image_path: str,
+        input_tier: Optional[str] = None,
+        runtime_resolution: Optional[str] = None,
+    ) -> Optional[BenchmarkResult]:
         """运行单个模型的评测
         
         Args:
@@ -147,6 +179,8 @@ class ModelSelectionScenario(BenchmarkScenario):
         from src.inference import Inference
         
         config = Config(model_path=model_path)
+        if runtime_resolution:
+            config.resolution = runtime_resolution
         config.strategies.multithread.enabled = False
         config.strategies.batch.enabled = False
         config.strategies.pipeline.enabled = False
@@ -203,7 +237,9 @@ class ModelSelectionScenario(BenchmarkScenario):
                 config={
                     'iterations': self.iterations,
                     'warmup': self.warmup,
-                    'image': image_path
+                    'image': image_path,
+                    'input_tier': input_tier,
+                    'runtime_resolution': runtime_resolution or config.resolution,
                 },
                 resource_stats=resource_stats
             )

@@ -1,14 +1,17 @@
 import json
+import sys
 from pathlib import Path
+from unittest.mock import Mock, patch
 
 import pytest
 
+from commands.model_bench import create_parser, run_benchmark
 from config import Config
 from config.strategy_config import EvaluationConfig
 from config.validator import ConfigValidator
 from evaluations.routes import RouteType
 from evaluations.tasks import EvaluationTask
-from evaluations.tiers import InputTier
+from evaluations.tiers import InputTier, STANDARD_INPUT_TIERS
 from registry.models import InputSpec, ModelAsset
 
 
@@ -96,6 +99,69 @@ def test_large_input_route_with_supported_combinations_is_valid(monkeypatch):
     result = ConfigValidator.validate(config)
 
     assert result.is_valid is True
+
+
+def test_model_bench_parser_defaults_standard_input_tiers():
+    parser = create_parser()
+
+    args = parser.parse_args(["model.om", "--images", "image.jpg"])
+
+    assert args.input_tiers == list(STANDARD_INPUT_TIERS)
+
+
+def test_model_bench_run_preserves_input_tiers_in_scenario_config():
+    args = Mock(
+        models=["model.om"],
+        images=["image.jpg"],
+        iterations=10,
+        warmup=2,
+        output=None,
+        format="text",
+        device=0,
+        backend="pil",
+        enable_monitoring=False,
+        input_tiers=["720p", "4K"],
+    )
+    scenario = Mock()
+    scenario.run.return_value = [Mock()]
+    scenario.generate_report.return_value = "report"
+
+    with patch("commands.model_bench.ModelSelectionScenario", return_value=scenario) as scenario_cls:
+        result = run_benchmark(args)
+
+    assert result == 0
+    assert scenario_cls.call_args.args[0]["input_tiers"] == ["720p", "4K"]
+
+
+def test_main_model_bench_parser_passes_explicit_input_tiers(monkeypatch):
+    import main as main_module
+
+    captured = {}
+
+    def fake_cmd(args):
+        captured["args"] = args
+        return 0
+
+    monkeypatch.setattr(main_module, "_cmd_model_bench", fake_cmd)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "main.py",
+            "model-bench",
+            "model.om",
+            "--images",
+            "image.jpg",
+            "--input-tiers",
+            "720p",
+            "4K",
+        ],
+    )
+
+    exit_code = main_module.main()
+
+    assert exit_code == 0
+    assert captured["args"].input_tiers == ["720p", "4K"]
 
 
 if __name__ == "__main__":
