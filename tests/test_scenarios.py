@@ -109,6 +109,21 @@ class TestBenchmarkResult:
         assert result.metrics['fps']['e2e'] == 55.5
         assert result.metrics['iterations']['test'] == 100
 
+    def test_reassigning_fields_updates_execution_record(self):
+        result = BenchmarkResult(
+            scenario_name="initial",
+            model_info=ModelInfo(name="test_model"),
+            metrics={"fps": {"pure": 100.0}},
+        )
+
+        result.scenario_name = "updated"
+        result.strategies = ["baseline"]
+
+        assert result.scenario_name == "updated"
+        assert result.execution_record.task_name == "updated"
+        assert result.strategies == ["baseline"]
+        assert result.execution_record.strategies == ["baseline"]
+
 
 class TestModelSelectionScenario:
     """ModelSelectionScenario 类测试"""
@@ -220,6 +235,25 @@ class TestStrategyValidationScenario:
         assert "策略验证评测报告" in report
         assert "基准性能" in report
         assert "策略对比" in report
+
+
+    def test_run_baseline_keeps_execution_record_in_sync(self):
+        scenario = StrategyValidationScenario()
+        baseline = BenchmarkResult(
+            scenario_name="model_selection",
+            model_info=ModelInfo(name="baseline_model"),
+            metrics={"fps": {"pure": 100.0, "e2e": 80.0}},
+            strategies=[],
+        )
+
+        with patch.object(ModelSelectionScenario, "run", return_value=[baseline]):
+            result = scenario._run_baseline("model.om", "image.jpg")
+
+        assert result is baseline
+        assert result.scenario_name == "baseline"
+        assert result.execution_record.task_name == "baseline"
+        assert result.strategies == ["baseline"]
+        assert result.execution_record.strategies == ["baseline"]
 
 
 class TestExtremePerformanceScenario:

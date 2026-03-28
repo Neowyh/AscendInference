@@ -404,6 +404,29 @@ class BenchmarkResult:
         self.execution_record = execution_record
         self._legacy_metrics = self.execution_record.to_legacy_metrics()
 
+    def __setattr__(self, name: str, value: Any) -> None:
+        object.__setattr__(self, name, value)
+
+        if name.startswith("_"):
+            return
+
+        execution_record = self.__dict__.get("execution_record")
+        if execution_record is None:
+            return
+
+        if name == "scenario_name":
+            execution_record.task_name = value
+        elif name == "strategies":
+            execution_record.strategies = list(value or [])
+        elif name == "config":
+            execution_record.config = dict(value or {})
+        elif name == "resource_stats":
+            execution_record.resource_stats = dict(value or {})
+        elif name == "timestamp":
+            execution_record.timestamp = value
+        elif name == "model_info":
+            execution_record.model_name = getattr(value, "name", "")
+
     @property
     def model_metrics(self) -> Dict[str, Any]:
         return self.execution_record.model_metrics
@@ -418,7 +441,31 @@ class BenchmarkResult:
 
     @metrics.setter
     def metrics(self, value: Dict[str, Any]) -> None:
-        self._legacy_metrics = dict(value or {})
+        value = dict(value or {})
+        self._legacy_metrics = value
+
+        execution_record = self.__dict__.get("execution_record")
+        if execution_record is None:
+            return
+
+        synced_record = ExecutionRecord.from_legacy_metrics(
+            value,
+            task_name=self.scenario_name,
+            route_type=getattr(execution_record, "route_type", ""),
+            model_name=self.model_info.name,
+            resource_stats=self.resource_stats,
+            config=self.config,
+            strategies=self.strategies,
+            timestamp=self.timestamp,
+        )
+        execution_record.model_metrics = synced_record.model_metrics
+        execution_record.system_metrics = synced_record.system_metrics
+        execution_record.resource_stats = dict(self.resource_stats)
+        execution_record.config = dict(self.config)
+        execution_record.strategies = list(self.strategies)
+        execution_record.task_name = self.scenario_name
+        execution_record.model_name = self.model_info.name
+        execution_record.timestamp = self.timestamp
 
 
 class StrategyValidationScenario(BenchmarkScenario):
