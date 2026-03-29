@@ -12,10 +12,13 @@
 import os
 import json
 import argparse
+from pathlib import Path
 from typing import List, Optional, Dict, Any
 
 from config import Config
 from benchmark import ExtremePerformanceScenario, BenchmarkResult
+from benchmark.reporters import render_report
+from reporting.archive import archive_result
 from utils.logger import LoggerConfig
 
 
@@ -220,12 +223,29 @@ def run_benchmark(args: argparse.Namespace) -> int:
         logger.error("评测失败，没有产生有效结果")
         return 1
     
-    report = scenario.generate_report(results)
+    report, report_model, report_extension = render_report(
+        results,
+        task_name=scenario.name,
+        output_format=args.format,
+    )
     
     if args.output:
-        with open(args.output, 'w', encoding='utf-8') as f:
+        output_path = Path(args.output)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(output_path, 'w', encoding='utf-8') as f:
             f.write(report)
-        logger.info(f"报告已保存到: {args.output}")
+        logger.info(f"报告已保存到: {output_path}")
+
+        route_items = report_model.get("route_comparison", [])
+        route_type = route_items[0]["route"] if len(route_items) == 1 else "mixed"
+        archived = archive_result(
+            output_path.parent / "archives",
+            {"task_name": scenario.name, "route_type": route_type},
+            report,
+            report_model,
+            report_extension=report_extension,
+        )
+        logger.info(f"归档已保存到: {archived['archive_dir']}")
     else:
         print(report)
     

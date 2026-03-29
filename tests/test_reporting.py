@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-reporting.models 的最小契约测试
+reporting 层最小契约测试
 """
+
+import json
 
 from reporting.models import ExecutionRecord
 
@@ -215,3 +217,41 @@ def test_execution_record_constructor_snapshots_model_info():
 
     assert record.model_name == "snapshot_model"
     assert record.model_info.name == "snapshot_model"
+
+
+def test_markdown_report_contains_route_comparison_section():
+    from reporting.renderers import MarkdownReportRenderer
+
+    report = MarkdownReportRenderer().render({"route_comparison": [{"route": "tiled_route"}]})
+
+    assert "Route Comparison" in report
+    assert "tiled_route" in report
+
+
+def test_build_archive_path_nests_task_name_and_route_type():
+    from pathlib import Path
+
+    from reporting.archive import build_archive_path
+
+    archive_path = build_archive_path(Path("reports"), "model_selection", "tiled_route")
+
+    assert archive_path == Path("reports") / "model_selection" / "tiled_route"
+
+
+def test_archive_result_writes_report_and_raw_results(tmp_path):
+    from reporting.archive import archive_result
+
+    report_body = "# Evaluation Report"
+    raw_results = {"results": [{"route_type": "tiled_route"}]}
+
+    archived = archive_result(
+        tmp_path,
+        {"task_name": "model_selection", "route_type": "tiled_route"},
+        report_body,
+        raw_results,
+    )
+
+    assert archived["report_path"].exists()
+    assert archived["raw_results_path"].exists()
+    assert archived["report_path"].read_text(encoding="utf-8") == report_body
+    assert json.loads(archived["raw_results_path"].read_text(encoding="utf-8")) == raw_results
