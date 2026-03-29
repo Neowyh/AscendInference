@@ -1,0 +1,19 @@
+{
+  "models": [
+    "models/yolov8n.om",
+    "models/yolov8s.om"
+  ],
+  "images": [
+    "samples/standard_1080p.jpg"
+  ],
+  "input_tiers": [
+    "720p",
+    "1080p",
+    "4K"
+  ],
+  "iterations": 10,
+  "warmup": 2,
+  "device": 0,
+  "backend": "opencv",
+  "output": "reports/smoke/standard.md"
+}

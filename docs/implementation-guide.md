@@ -113,6 +113,7 @@
 - `benchmark/reporters.py`：把 `BenchmarkResult` 归一化为统一报告模型
 - `reporting/renderers.py`：输出 Markdown 或 JSON 报告
 - `reporting/archive.py`：按 `archives/<task>/<route>/` 写入报告、原始结果和元数据
+- `scripts/run_smoke_eval.py`：根据 smoke 样例配置构建或执行真实硬件 smoke 命令
 
 归档目录示例：
 

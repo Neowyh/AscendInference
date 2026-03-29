@@ -145,6 +145,30 @@ python main.py extreme-bench --duration 60 --monitor
   - `raw_results.json`
   - `metadata.json`
 
+## Ascend Smoke Check
+
+仓库内置了三套硬件 smoke 样例配置：
+
+- `config/evaluation/smoke_standard_eval.json`
+- `config/evaluation/smoke_remote_eval.json`
+- `config/evaluation/smoke_strategy_eval.json`
+
+先预览命令：
+
+```bash
+python scripts/run_smoke_eval.py --mode standard
+python scripts/run_smoke_eval.py --mode remote
+python scripts/run_smoke_eval.py --mode strategy
+```
+
+在 Ascend 设备上实际执行：
+
+```bash
+python scripts/run_smoke_eval.py --mode standard --run
+python scripts/run_smoke_eval.py --mode remote --run
+python scripts/run_smoke_eval.py --mode strategy --run
+```
+
 ## Python API 使用
 
 ### 基础推理

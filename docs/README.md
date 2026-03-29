@@ -57,6 +57,7 @@
 
 1. 参考 [重构分析报告](refactoring-analysis.md) 了解优化方向
 2. 按照 [优化实施计划](optimization-plan.md) 执行优化任务
+3. 使用 `scripts/run_smoke_eval.py` 和 `config/evaluation/smoke_*.json` 进行 Ascend 设备 smoke check
 
 ---
 

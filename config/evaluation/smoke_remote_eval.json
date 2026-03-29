@@ -1,0 +1,21 @@
+{
+  "models": [
+    "models/yolov8n.om",
+    "models/yolov8_6k.om"
+  ],
+  "images": [
+    "samples/remote_6k.jpg"
+  ],
+  "routes": [
+    "tiled_route",
+    "large_input_route"
+  ],
+  "image_size_tiers": [
+    "6K"
+  ],
+  "iterations": 5,
+  "warmup": 1,
+  "device": 0,
+  "backend": "opencv",
+  "output": "reports/smoke/remote.md"
+}
