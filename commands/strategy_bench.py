@@ -16,6 +16,7 @@ from typing import List, Optional
 from config import Config
 from benchmark import StrategyValidationScenario, BenchmarkResult
 from evaluations.routes import REMOTE_SENSING_ROUTES
+from src.strategies import StrategyCompositionEngine
 from utils.logger import LoggerConfig
 
 
@@ -91,6 +92,10 @@ def validate_args(args: argparse.Namespace) -> bool:
     if args.threads < 1:
         logger.error("线程数必须大于0")
         return False
+
+    if args.batch_size < 1:
+        logger.error("批大小必须大于0")
+        return False
     
     return True
 
@@ -120,9 +125,10 @@ def run_benchmark(args: argparse.Namespace) -> int:
         image_size_tiers = None
     if image_size_tiers and not routes:
         routes = list(REMOTE_SENSING_ROUTES)
+    strategies = StrategyCompositionEngine().normalize_strategies(args.strategies)
 
     scenario = StrategyValidationScenario({
-        'strategies': args.strategies,
+        'strategies': strategies,
         'iterations': args.iterations,
         'warmup': args.warmup,
         'threads': args.threads,

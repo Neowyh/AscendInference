@@ -15,6 +15,7 @@ from src.strategies import (
     BaseStrategyConfig,
     NoOpStrategy,
     StrategyComposer,
+    StrategyCompositionEngine,
     register_builtin_strategies
 )
 from src.strategies.base import BaseStrategyConfig
@@ -506,6 +507,34 @@ class TestStrategyComposerFromConfig:
         
         assert len(composer) == 1
         assert composer.has_strategy('noop')
+
+
+class TestStrategyCompositionEngine:
+    """策略组合引擎测试"""
+
+    def test_strategy_composition_rejects_invalid_route_combination(self):
+        engine = StrategyCompositionEngine()
+
+        result = engine.validate(["high_res_tiling"], route_type="large_input_route")
+
+        assert result.is_valid is False
+        assert "high_res_tiling" in result.errors[0]
+
+    def test_strategy_composition_normalizes_high_res_alias(self):
+        engine = StrategyCompositionEngine()
+
+        result = engine.validate(["high_res"], route_type="tiled_route")
+
+        assert result.is_valid is True
+        assert result.normalized_strategies == ("high_res_tiling",)
+
+    def test_strategy_composition_exposes_executor_kind(self):
+        engine = StrategyCompositionEngine()
+
+        unit = engine.get_unit("pipeline")
+
+        assert unit is not None
+        assert unit.executor_kind == "pipeline"
 
 
 if __name__ == '__main__':

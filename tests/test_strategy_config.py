@@ -285,6 +285,24 @@ class TestStrategyConfig:
         assert restored.batch.enabled == original.batch.enabled
         assert restored.batch.batch_size == original.batch.batch_size
 
+    def test_get_enabled_strategy_units_maps_high_res_to_high_res_tiling(self):
+        config = StrategyConfig()
+        config.high_res.enabled = True
+        config.memory_pool.enabled = True
+
+        enabled_units = config.get_enabled_strategy_units()
+
+        assert enabled_units == ["memory_pool", "high_res_tiling"]
+
+    def test_validate_composition_rejects_large_input_with_high_res_tiling(self):
+        config = StrategyConfig()
+        config.high_res.enabled = True
+
+        result = config.validate_composition(route_type="large_input_route")
+
+        assert result.is_valid is False
+        assert "high_res_tiling" in result.errors[0]
+
 
 class TestBenchmarkConfig:
     """BenchmarkConfig 测试"""

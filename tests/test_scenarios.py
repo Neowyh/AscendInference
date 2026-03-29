@@ -649,6 +649,61 @@ class TestStrategyValidationScenario:
         assert baseline_calls == [("large_input_route", "6K")]
         assert strategy_calls == [("large_input_route", "6K")]
 
+    def test_run_strategy_uses_configured_thread_count_for_multithread(self):
+        scenario = StrategyValidationScenario(
+            {
+                "threads": 8,
+            }
+        )
+
+        with patch.object(scenario, "_run_multithread_strategy", return_value="ok") as runner:
+            result = scenario._run_strategy(
+                "multithread",
+                "model.om",
+                "image.jpg",
+                baseline_fps=100.0,
+            )
+
+        assert result == "ok"
+        config = runner.call_args.args[0]
+        assert config.num_threads == 8
+        assert config.strategies.multithread.num_threads == 8
+
+    def test_run_strategy_uses_configured_batch_size_for_batch_strategy(self):
+        scenario = StrategyValidationScenario(
+            {
+                "batch_size": 16,
+            }
+        )
+
+        with patch.object(scenario, "_run_batch_strategy", return_value="ok") as runner:
+            result = scenario._run_strategy(
+                "batch",
+                "model.om",
+                "image.jpg",
+                baseline_fps=100.0,
+            )
+
+        assert result == "ok"
+        config = runner.call_args.args[0]
+        assert config.strategies.batch.batch_size == 16
+
+    def test_run_strategy_skips_invalid_high_res_combination_for_large_input_route(self):
+        scenario = StrategyValidationScenario()
+
+        with patch.object(scenario, "_run_high_res_strategy") as runner:
+            result = scenario._run_strategy(
+                "high_res",
+                "model.om",
+                "image.jpg",
+                baseline_fps=100.0,
+                route_type="large_input_route",
+                image_size_tier="6K",
+            )
+
+        assert result is None
+        runner.assert_not_called()
+
 
 class TestRouteExperimentScenario:
     def test_remote_sensing_route_matrix_includes_tiled_and_large_input_routes(self):

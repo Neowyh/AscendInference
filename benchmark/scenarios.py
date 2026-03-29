@@ -21,6 +21,7 @@ from config import Config
 from evaluations.routes import REMOTE_SENSING_ROUTES, RouteType
 from evaluations.tiers import InputTier, STANDARD_INPUT_TIERS
 from reporting.models import ExecutionRecord
+from src.strategies.composition import StrategyCompositionEngine
 from utils.metrics import MetricsCollector, TimingRecord
 from utils.monitor import ResourceMonitor, SimpleResourceMonitor
 from utils.exceptions import BenchmarkError, InferenceError
@@ -662,8 +663,11 @@ class StrategyValidationScenario(BenchmarkScenario):
         ])
         self.iterations = self.config.get('iterations', 50)
         self.warmup = self.config.get('warmup', 3)
+        self.threads = self.config.get('threads', 4)
+        self.batch_size = self.config.get('batch_size', 4)
         self.device_id = self.config.get('device_id', 0)
         self.backend = self.config.get('backend', 'pil')
+        self.strategy_engine = StrategyCompositionEngine()
         self.routes = list(self.config.get('routes', []))
         self.image_size_tiers = list(self.config.get('image_size_tiers', []))
         if self.image_size_tiers and not self.routes:
@@ -710,8 +714,20 @@ class StrategyValidationScenario(BenchmarkScenario):
                 baseline_fps = baseline_result.metrics.get('fps', {}).get('pure', 0) if baseline_result else 0
 
                 for strategy_name in self.strategies_to_test:
+                    validation = self.strategy_engine.validate(
+                        [strategy_name],
+                        route_type=route_type,
+                    )
+                    if not validation.is_valid:
+                        logger.warning(
+                            "跳过无效策略组合: route=%s strategy=%s errors=%s",
+                            route_type,
+                            strategy_name,
+                            "; ".join(validation.errors),
+                        )
+                        continue
                     strategy_result = self._run_strategy(
-                        strategy_name,
+                        validation.normalized_strategies[0],
                         model_path,
                         image_path,
                         baseline_fps,
@@ -783,6 +799,17 @@ class StrategyValidationScenario(BenchmarkScenario):
         Returns:
             BenchmarkResult: 策略结果
         """
+        validation = self.strategy_engine.validate([strategy_name], route_type=route_type)
+        if not validation.is_valid:
+            logger.warning(
+                "策略 %s 与路线 %s 不兼容: %s",
+                strategy_name,
+                route_type,
+                "; ".join(validation.errors),
+            )
+            return None
+
+        strategy_name = validation.normalized_strategies[0]
         config = Config(model_path=model_path, device_id=self.device_id, backend=self.backend)
         if route_type:
             config.evaluation.route_type = route_type
@@ -790,25 +817,63 @@ class StrategyValidationScenario(BenchmarkScenario):
             config.resolution = str(image_size_tier).lower()
         
         if strategy_name == 'multithread':
+            config.num_threads = self.threads
             config.strategies.multithread.enabled = True
-            config.strategies.multithread.num_threads = 4
-            theoretical_speedup = 4.0
+            config.strategies.multithread.num_threads = self.threads
+            theoretical_speedup = float(self.threads)
         elif strategy_name == 'batch':
             config.strategies.batch.enabled = True
-            config.strategies.batch.batch_size = 4
-            theoretical_speedup = 4.0
+            config.strategies.batch.batch_size = self.batch_size
+            theoretical_speedup = float(self.batch_size)
         elif strategy_name == 'pipeline':
             config.strategies.pipeline.enabled = True
-            theoretical_speedup = 3.0
+            config.strategies.pipeline.batch_size = self.batch_size
+            config.strategies.pipeline.num_preprocess_threads = self.threads
+            config.strategies.pipeline.num_infer_threads = 1
+            theoretical_speedup = float(max(1, self.threads + 1))
         elif strategy_name == 'memory_pool':
             config.strategies.memory_pool.enabled = True
+            config.strategies.memory_pool.max_buffers = max(5, self.batch_size)
             theoretical_speedup = 1.1
+        elif strategy_name == 'high_res_tiling':
+            config.num_threads = self.threads
+            config.strategies.high_res.enabled = True
+            config.tile_size = config.strategies.high_res.tile_size
+            config.overlap = config.strategies.high_res.overlap
+            theoretical_speedup = 1.0
         else:
             return None
         
         try:
             if strategy_name == 'multithread':
                 return self._run_multithread_strategy(
+                    config,
+                    image_path,
+                    baseline_fps,
+                    theoretical_speedup,
+                    route_type=route_type,
+                    image_size_tier=image_size_tier,
+                )
+            if strategy_name == 'batch':
+                return self._run_batch_strategy(
+                    config,
+                    image_path,
+                    baseline_fps,
+                    theoretical_speedup,
+                    route_type=route_type,
+                    image_size_tier=image_size_tier,
+                )
+            if strategy_name == 'pipeline':
+                return self._run_pipeline_strategy(
+                    config,
+                    image_path,
+                    baseline_fps,
+                    theoretical_speedup,
+                    route_type=route_type,
+                    image_size_tier=image_size_tier,
+                )
+            if strategy_name == 'high_res_tiling':
+                return self._run_high_res_strategy(
                     config,
                     image_path,
                     baseline_fps,
@@ -939,6 +1004,252 @@ class StrategyValidationScenario(BenchmarkScenario):
             ) from e
         finally:
             inference.destroy()
+
+    def _run_batch_strategy(
+        self,
+        config: Config,
+        image_path: str,
+        baseline_fps: float,
+        theoretical_speedup: float,
+        route_type: Optional[str] = None,
+        image_size_tier: Optional[str] = None,
+    ) -> Optional[BenchmarkResult]:
+        """运行批处理策略测试"""
+        from src.inference import Inference
+
+        batch_size = config.strategies.batch.batch_size
+        inference = Inference(config, batch_size=batch_size)
+        batch_images = [image_path] * batch_size
+
+        try:
+            inference.init()
+
+            collector = MetricsCollector(auto_warmup=False)
+
+            for _ in range(self.warmup):
+                inference.run_inference_batch(batch_images, config.backend)
+            collector.finish_warmup()
+
+            for _ in range(self.iterations):
+                record = TimingRecord()
+
+                start = time.time()
+                inference.preprocess_batch(batch_images, config.backend)
+                record.preprocess_time = time.time() - start
+
+                start = time.time()
+                inference.execute()
+                record.execute_time = time.time() - start
+
+                start = time.time()
+                inference.get_result_batch()
+                record.postprocess_time = time.time() - start
+
+                record.calculate_total()
+                collector.record(record)
+
+            metrics = collector.get_statistics()
+            metrics['fps']['pure'] *= batch_size
+            metrics['fps']['e2e'] *= batch_size
+            strategy_fps = metrics.get('fps', {}).get('pure', 0)
+
+            speedup = strategy_fps / baseline_fps if baseline_fps > 0 else 1.0
+            parallel_efficiency = (speedup / theoretical_speedup) * 100 if theoretical_speedup > 0 else 0
+
+            metrics['strategy'] = {
+                'speedup': speedup,
+                'parallel_efficiency': parallel_efficiency,
+                'theoretical_speedup': theoretical_speedup,
+                'baseline_fps': baseline_fps,
+                'strategy_fps': strategy_fps,
+            }
+            metrics['batch'] = {
+                'batch_size': batch_size,
+                'effective_images': self.iterations * batch_size,
+            }
+
+            return BenchmarkResult(
+                scenario_name=self.name,
+                model_info=ModelInfo(name=os.path.basename(config.model_path)),
+                metrics=metrics,
+                strategies=['batch'],
+                route_type=route_type or "",
+                config={
+                    'iterations': self.iterations,
+                    'warmup': self.warmup,
+                    'batch_size': batch_size,
+                    'route_type': route_type,
+                    'image_size_tier': image_size_tier,
+                    'runtime_resolution': config.resolution,
+                    'device_id': config.device_id,
+                    'backend': config.backend,
+                }
+            )
+        finally:
+            inference.destroy()
+
+    def _run_pipeline_strategy(
+        self,
+        config: Config,
+        image_path: str,
+        baseline_fps: float,
+        theoretical_speedup: float,
+        route_type: Optional[str] = None,
+        image_size_tier: Optional[str] = None,
+    ) -> Optional[BenchmarkResult]:
+        """运行流水线策略测试"""
+        from src.inference import PipelineInference
+
+        batch_size = config.strategies.pipeline.batch_size
+        pipeline = PipelineInference(
+            config=config,
+            batch_size=batch_size,
+            queue_size=config.strategies.pipeline.queue_size,
+        )
+
+        try:
+            if not pipeline.start(
+                num_preprocess_threads=config.strategies.pipeline.num_preprocess_threads,
+                num_infer_threads=config.strategies.pipeline.num_infer_threads,
+                num_postprocess_threads=config.strategies.pipeline.num_postprocess_threads,
+            ):
+                return None
+
+            warmup_images = [image_path] * batch_size
+            for _ in range(self.warmup):
+                pipeline.submit(warmup_images)
+                pipeline.wait_for_completion()
+
+            start_time = time.time()
+            for _ in range(self.iterations):
+                pipeline.submit([image_path] * batch_size)
+            pipeline.wait_for_completion()
+            total_time = time.time() - start_time
+
+            completed_images = self.iterations * batch_size
+            strategy_fps = completed_images / total_time if total_time > 0 else 0
+            speedup = strategy_fps / baseline_fps if baseline_fps > 0 else 1.0
+            parallel_efficiency = (speedup / theoretical_speedup) * 100 if theoretical_speedup > 0 else 0
+
+            metrics = {
+                'fps': {'pure': strategy_fps, 'e2e': strategy_fps},
+                'strategy': {
+                    'speedup': speedup,
+                    'parallel_efficiency': parallel_efficiency,
+                    'theoretical_speedup': theoretical_speedup,
+                    'baseline_fps': baseline_fps,
+                    'strategy_fps': strategy_fps,
+                },
+                'pipeline': {
+                    'batch_size': batch_size,
+                    'num_preprocess_threads': config.strategies.pipeline.num_preprocess_threads,
+                    'num_infer_threads': config.strategies.pipeline.num_infer_threads,
+                    'num_postprocess_threads': config.strategies.pipeline.num_postprocess_threads,
+                    'queue_size': config.strategies.pipeline.queue_size,
+                },
+                'iterations': {
+                    'test': self.iterations,
+                    'effective_images': completed_images,
+                },
+                'duration': {
+                    'total_seconds': total_time,
+                },
+            }
+
+            return BenchmarkResult(
+                scenario_name=self.name,
+                model_info=ModelInfo(name=os.path.basename(config.model_path)),
+                metrics=metrics,
+                strategies=['pipeline'],
+                route_type=route_type or "",
+                config={
+                    'iterations': self.iterations,
+                    'warmup': self.warmup,
+                    'batch_size': batch_size,
+                    'num_preprocess_threads': config.strategies.pipeline.num_preprocess_threads,
+                    'num_infer_threads': config.strategies.pipeline.num_infer_threads,
+                    'num_postprocess_threads': config.strategies.pipeline.num_postprocess_threads,
+                    'route_type': route_type,
+                    'image_size_tier': image_size_tier,
+                    'runtime_resolution': config.resolution,
+                    'device_id': config.device_id,
+                    'backend': config.backend,
+                }
+            )
+        finally:
+            pipeline.stop()
+
+    def _run_high_res_strategy(
+        self,
+        config: Config,
+        image_path: str,
+        baseline_fps: float,
+        theoretical_speedup: float,
+        route_type: Optional[str] = None,
+        image_size_tier: Optional[str] = None,
+    ) -> Optional[BenchmarkResult]:
+        """运行高分辨率切片策略测试"""
+        from src.inference import HighResInference
+
+        collector = MetricsCollector(auto_warmup=False)
+        tile_counts = []
+
+        try:
+            for _ in range(self.warmup):
+                inference = HighResInference(config)
+                inference.process_image(image_path, config.backend)
+                inference.stop()
+            collector.finish_warmup()
+
+            for _ in range(self.iterations):
+                inference = HighResInference(config)
+                start = time.time()
+                merged_result = inference.process_image(image_path, config.backend) or {}
+                total_time = time.time() - start
+                inference.stop()
+
+                tile_counts.append(len(merged_result.get('sub_results', [])))
+                record = TimingRecord(total_time=total_time, execute_time=total_time)
+                collector.record(record)
+
+            metrics = collector.get_statistics()
+            strategy_fps = metrics.get('fps', {}).get('e2e', 0)
+            speedup = strategy_fps / baseline_fps if baseline_fps > 0 else 1.0
+            parallel_efficiency = (speedup / theoretical_speedup) * 100 if theoretical_speedup > 0 else 0
+
+            metrics['strategy'] = {
+                'speedup': speedup,
+                'parallel_efficiency': parallel_efficiency,
+                'theoretical_speedup': theoretical_speedup,
+                'baseline_fps': baseline_fps,
+                'strategy_fps': strategy_fps,
+            }
+            metrics['high_res'] = {
+                'tile_size': config.tile_size,
+                'overlap': config.overlap,
+                'avg_tiles': sum(tile_counts) / len(tile_counts) if tile_counts else 0,
+            }
+
+            return BenchmarkResult(
+                scenario_name=self.name,
+                model_info=ModelInfo(name=os.path.basename(config.model_path)),
+                metrics=metrics,
+                strategies=['high_res_tiling'],
+                route_type=route_type or "",
+                config={
+                    'iterations': self.iterations,
+                    'warmup': self.warmup,
+                    'tile_size': config.tile_size,
+                    'overlap': config.overlap,
+                    'route_type': route_type,
+                    'image_size_tier': image_size_tier,
+                    'runtime_resolution': config.resolution,
+                    'device_id': config.device_id,
+                    'backend': config.backend,
+                }
+            )
+        except InferenceError:
+            raise
     
     def _run_multithread_strategy(
         self,

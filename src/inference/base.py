@@ -151,13 +151,17 @@ class Inference:
     
     def _init_components(self) -> None:
         """初始化预处理器、执行器和后处理器"""
+        max_buffers = 5
+        if self.config.is_strategy_enabled('memory_pool'):
+            max_buffers = self.config.strategies.memory_pool.max_buffers
+
         self.preprocessor = Preprocessor(
             input_width=self.input_width,
             input_height=self.input_height,
             input_size=self.input_size,
             batch_size=self.batch_size
         )
-        self.preprocessor.init_pool(max_buffers=5)
+        self.preprocessor.init_pool(max_buffers=max_buffers)
         
         self.executor = Executor(
             model_id=self.model_id,

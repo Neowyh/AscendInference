@@ -314,6 +314,32 @@ class StrategyConfig:
         """
         return len(self.get_enabled_strategies()) > 0
 
+    def get_enabled_strategy_units(self) -> list:
+        """获取规范化后的已启用策略单元名称"""
+        unit_names = []
+        if self.multithread.enabled:
+            unit_names.append('multithread')
+        if self.batch.enabled:
+            unit_names.append('batch')
+        if self.pipeline.enabled:
+            unit_names.append('pipeline')
+        if self.memory_pool.enabled:
+            unit_names.append('memory_pool')
+        if self.high_res.enabled:
+            unit_names.append('high_res_tiling')
+        if self.async_io.enabled:
+            unit_names.append('async_io')
+        if self.cache.enabled:
+            unit_names.append('cache')
+        return unit_names
+
+    def validate_composition(self, route_type: Optional[str] = None):
+        """校验当前启用策略在指定路线下的组合是否合法"""
+        from src.strategies.composition import StrategyCompositionEngine
+
+        engine = StrategyCompositionEngine()
+        return engine.validate(self.get_enabled_strategy_units(), route_type=route_type)
+
 
 @dataclass
 class BenchmarkConfig:
