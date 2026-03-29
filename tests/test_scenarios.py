@@ -584,6 +584,71 @@ class TestStrategyValidationScenario:
             "large_input_route",
         ]
 
+    def test_strategy_validation_scenario_defaults_remote_routes_from_image_size_tiers(self):
+        scenario = StrategyValidationScenario(
+            {
+                "strategies": ["multithread"],
+                "image_size_tiers": ["6K"],
+            }
+        )
+        baseline_calls = []
+
+        def fake_baseline(model_path, image_path, route_type=None, image_size_tier=None):
+            baseline_calls.append((route_type, image_size_tier))
+            return BenchmarkResult(
+                scenario_name="baseline",
+                model_info=ModelInfo(name=model_path),
+                metrics={"fps": {"pure": 100.0}},
+                route_type=route_type,
+            )
+
+        with patch.object(scenario, "_run_baseline", side_effect=fake_baseline), patch.object(
+            scenario, "_run_strategy", return_value=None
+        ):
+            scenario.run(["model.om"], ["image.jpg"])
+
+        assert baseline_calls == [
+            ("tiled_route", "6K"),
+            ("large_input_route", "6K"),
+        ]
+
+    def test_strategy_validation_scenario_defaults_large_input_route_to_6k(self):
+        scenario = StrategyValidationScenario(
+            {
+                "strategies": ["multithread"],
+                "routes": ["large_input_route"],
+            }
+        )
+        baseline_calls = []
+        strategy_calls = []
+
+        def fake_baseline(model_path, image_path, route_type=None, image_size_tier=None):
+            baseline_calls.append((route_type, image_size_tier))
+            return BenchmarkResult(
+                scenario_name="baseline",
+                model_info=ModelInfo(name=model_path),
+                metrics={"fps": {"pure": 100.0}},
+                route_type=route_type,
+            )
+
+        def fake_strategy(strategy_name, model_path, image_path, baseline_fps, route_type=None, image_size_tier=None):
+            strategy_calls.append((route_type, image_size_tier))
+            return BenchmarkResult(
+                scenario_name="strategy_validation",
+                model_info=ModelInfo(name=model_path),
+                metrics={"fps": {"pure": baseline_fps}},
+                strategies=[strategy_name],
+                route_type=route_type,
+            )
+
+        with patch.object(scenario, "_run_baseline", side_effect=fake_baseline), patch.object(
+            scenario, "_run_strategy", side_effect=fake_strategy
+        ):
+            scenario.run(["model.om"], ["image.jpg"])
+
+        assert baseline_calls == [("large_input_route", "6K")]
+        assert strategy_calls == [("large_input_route", "6K")]
+
 
 class TestRouteExperimentScenario:
     def test_remote_sensing_route_matrix_includes_tiled_and_large_input_routes(self):

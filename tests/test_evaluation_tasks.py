@@ -298,5 +298,33 @@ def test_strategy_bench_run_preserves_device_backend_and_routes():
     assert scenario_cls.call_args.args[0]["image_size_tiers"] == ["6K"]
 
 
+def test_strategy_bench_run_uses_remote_defaults_when_only_image_size_tiers_are_provided():
+    args = Mock(
+        model="small.om",
+        image="image_6k.jpg",
+        strategies=["multithread"],
+        iterations=20,
+        warmup=2,
+        threads=4,
+        batch_size=2,
+        output=None,
+        format="text",
+        device=5,
+        backend="opencv",
+        routes=None,
+        image_size_tiers=["6K"],
+    )
+    scenario = Mock()
+    scenario.run.return_value = [Mock()]
+    scenario.generate_report.return_value = "report"
+
+    with patch("commands.strategy_bench.StrategyValidationScenario", return_value=scenario) as scenario_cls:
+        result = run_strategy_benchmark(args)
+
+    assert result == 0
+    assert scenario_cls.call_args.args[0]["routes"] == ["tiled_route", "large_input_route"]
+    assert scenario_cls.call_args.args[0]["image_size_tiers"] == ["6K"]
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

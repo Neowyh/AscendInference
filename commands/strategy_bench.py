@@ -118,6 +118,8 @@ def run_benchmark(args: argparse.Namespace) -> int:
         routes = None
     if not isinstance(image_size_tiers, (list, tuple)):
         image_size_tiers = None
+    if image_size_tiers and not routes:
+        routes = list(REMOTE_SENSING_ROUTES)
 
     scenario = StrategyValidationScenario({
         'strategies': args.strategies,

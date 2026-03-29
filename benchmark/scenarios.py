@@ -666,6 +666,13 @@ class StrategyValidationScenario(BenchmarkScenario):
         self.backend = self.config.get('backend', 'pil')
         self.routes = list(self.config.get('routes', []))
         self.image_size_tiers = list(self.config.get('image_size_tiers', []))
+        if self.image_size_tiers and not self.routes:
+            self.routes = list(REMOTE_SENSING_ROUTES)
+        if (
+            RouteType.LARGE_INPUT_ROUTE.value in self.routes
+            and not self.image_size_tiers
+        ):
+            self.image_size_tiers = ['6K']
     
     def run(self, models: List[str], images: List[str], **kwargs) -> List[BenchmarkResult]:
         """运行策略验证评测
