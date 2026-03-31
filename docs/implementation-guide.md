@@ -1,4 +1,4 @@
-# 昇腾推理工具实现说明文档
+# 昇腾端侧 YOLO 评测系统实现说明文档
 
 **版本**: 1.1.0  
 **日期**: 2026-03-28  
@@ -7,6 +7,34 @@
 ---
 
 ## 一、系统架构
+
+## 评测主线
+
+### 标准评测主线
+
+- 入口：`model-bench --input-tiers 720p 1080p 4K`
+- 目标：在统一模型输入规格下，对不同原图输入分档的端到端成本进行公平比较
+- 核心矩阵：`模型 x 输入分档 x 策略组合`
+- 输出：模型执行指标、系统端到端指标、统一归档报告
+
+### 高分辨率遥感主线
+
+- 入口：`model-bench --routes tiled_route large_input_route --image-size-tiers 6K`
+- `tiled_route`：滑窗切片、tile 推理、全图回拼
+- `large_input_route`：固定大输入尺寸 `.om` 模型整图直检
+- 核心矩阵：`路线类型 x 模型 x 图幅档位 x 策略组合`
+- 第一阶段重点：性能与资源，不把检测效果纳入正式验收
+
+### 策略验证主线
+
+- 入口：`strategy-bench --strategies ... --threads ... --batch-size ...`
+- 通过 `StrategyCompositionEngine` 做策略单元规范化、路线兼容性校验和执行器映射
+- 当前真实执行器：
+  - `multithread -> MultithreadInference`
+  - `batch -> Inference(batch_size=N)`
+  - `pipeline -> PipelineInference`
+  - `memory_pool -> Inference + configurable pool`
+  - `high_res -> high_res_tiling -> HighResInference`
 
 ### 1.1 整体架构
 
@@ -20,8 +48,8 @@
 ┌─────────────────────────────────────────────────────────────────┐
 │                        业务逻辑层                                │
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐              │
-│  │  评测场景   │  │  策略组件   │  │   API层     │              │
-│  │ benchmark/  │  │ strategies/ │  │   api.py    │              │
+│  │  评测场景   │  │  策略单元   │  │  报告归档   │              │
+│  │ benchmark/  │  │ strategies/ │  │ reporting/  │              │
 │  └─────────────┘  └─────────────┘  └─────────────┘              │
 └─────────────────────────────────────────────────────────────────┘
                                 │
@@ -68,8 +96,9 @@
 | 模块 | 职责 | 关键文件 |
 |------|------|---------|
 | CLI入口 | 命令行解析和路由 | main.py, commands/ |
-| 评测场景 | 三层评测逻辑 | benchmark/scenarios.py |
-| 策略组件 | 优化策略实现 | src/strategies/ |
+| 评测场景 | 标准评测、遥感路线、策略验证 | benchmark/scenarios.py |
+| 策略组件 | 策略单元、组合规则、执行器映射 | src/strategies/ |
+| 报告层 | 报告模型、渲染器、归档目录 | benchmark/reporters.py, reporting/ |
 | 核心推理 | 推理执行 | src/inference.py |
 | 配置管理 | 配置加载和验证 | config/ |
 | 指标收集 | 性能统计 | utils/metrics.py |
@@ -78,6 +107,25 @@
 ---
 
 ## 二、核心组件实现
+
+### 2.0 统一报告与归档
+
+- `benchmark/reporters.py`：把 `BenchmarkResult` 归一化为统一报告模型
+- `reporting/renderers.py`：输出 Markdown 或 JSON 报告
+- `reporting/archive.py`：按 `archives/<task>/<route>/` 写入报告、原始结果和元数据
+- `scripts/run_smoke_eval.py`：根据 smoke 样例配置构建或执行真实硬件 smoke 命令
+
+归档目录示例：
+
+```text
+reports/
+└── archives/
+    └── strategy_validation/
+        └── mixed/
+            ├── report.md
+            ├── raw_results.json
+            └── metadata.json
+```
 
 ### 2.1 Inference 核心类
 

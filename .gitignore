@@ -51,6 +51,7 @@ test_config.py
 CODE_REVIEW.md
 BUGFIX.md
 *.md.bak
+.worktrees/
 
 # Repackaged archives
 *_repackaged.zip

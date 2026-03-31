@@ -1,6 +1,6 @@
-# 昇腾推理工具
+# 昇腾端侧 YOLO 选型与优化系统
 
-精简高效的昇腾 AscendCL 模型推理工具，支持三层性能评测体系
+面向昇腾端侧设备的 YOLO 标准化评测与优化工程，支持常规输入分档评测、遥感高分辨率双路线对照、策略单元化验证，以及 Markdown/JSON 报告归档。
 
 ## 项目特点
 
@@ -54,6 +54,44 @@ python main.py enhance test.jpg --output ./enhanced
 python main.py config --show
 ```
 
+## 评测主线
+
+### 标准评测主线
+
+- `720p / 1080p / 4K` 输入分档对比
+- 多模型公平评测，区分模型执行指标与端到端系统指标
+- 适合常规端侧检测场景下的模型选型
+
+```bash
+python main.py model-bench --models models/yolov8n.om models/yolov8s.om \
+  --images test.jpg --input-tiers 720p 1080p 4K --output reports/standard.md
+```
+
+### 高分辨率遥感主线
+
+- `tiled_route`：滑窗切片 + tile 推理 + 全图回拼
+- `large_input_route`：固定大输入尺寸 `.om` 模型整图直检
+- 适合 `6K` 等高分辨率遥感图的大图路线对照
+
+```bash
+python main.py model-bench --models models/small.om models/6k.om \
+  --images image_6k.jpg --routes tiled_route large_input_route \
+  --image-size-tiers 6K --output reports/remote.md
+```
+
+### 策略验证主线
+
+- 支持 `multithread / batch / pipeline / memory_pool / high_res`
+- 策略统一映射到可校验的策略单元与真实执行器
+- 报告会按任务和路线自动归档
+
+```bash
+python main.py strategy-bench --model models/yolov8n.om --image image_6k.jpg \
+  --strategies multithread batch pipeline high_res \
+  --routes tiled_route large_input_route --image-size-tiers 6K \
+  --threads 8 --batch-size 8 --output reports/strategy.md
+```
+
 ## 三层评测体系
 
 ### 1. 模型选型评测
@@ -68,6 +106,7 @@ python main.py model-bench --models models/yolov8n.om models/yolov8s.om --iterat
 - 纯推理 FPS / 端到端 FPS
 - 预处理/推理/后处理延迟
 - P50/P95/P99 延迟分布
+- 输入分档与路线维度的标准对照
 
 ### 2. 策略验证评测
 
@@ -81,6 +120,7 @@ python main.py strategy-bench --strategies multithread batch pipeline --baseline
 - 加速比
 - 并行效率
 - 吞吐量提升
+- 路线兼容性校验和策略组合约束
 
 ### 3. 极限性能评测
 
@@ -94,6 +134,40 @@ python main.py extreme-bench --duration 60 --monitor
 - 持续吞吐量
 - CPU/NPU 利用率
 - 内存使用统计
+
+## 报告与归档
+
+- `text` 格式现在默认输出 Markdown 报告
+- `json` 格式输出统一报告模型
+- 指定 `--output` 时，会在输出目录下自动创建 `archives/<task>/<route>/`
+- 归档内容包含：
+  - `report.md` 或 `report.json`
+  - `raw_results.json`
+  - `metadata.json`
+
+## Ascend Smoke Check
+
+仓库内置了三套硬件 smoke 样例配置：
+
+- `config/evaluation/smoke_standard_eval.json`
+- `config/evaluation/smoke_remote_eval.json`
+- `config/evaluation/smoke_strategy_eval.json`
+
+先预览命令：
+
+```bash
+python scripts/run_smoke_eval.py --mode standard
+python scripts/run_smoke_eval.py --mode remote
+python scripts/run_smoke_eval.py --mode strategy
+```
+
+在 Ascend 设备上实际执行：
+
+```bash
+python scripts/run_smoke_eval.py --mode standard --run
+python scripts/run_smoke_eval.py --mode remote --run
+python scripts/run_smoke_eval.py --mode strategy --run
+```
 
 ## Python API 使用
 

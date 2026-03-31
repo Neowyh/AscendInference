@@ -16,6 +16,7 @@ from datetime import datetime
 from typing import Dict, Any, List, Optional
 
 from benchmark.scenarios import BenchmarkResult
+from reporting.renderers import JsonReportRenderer, MarkdownReportRenderer
 
 
 class Reporter(ABC):
@@ -610,3 +611,86 @@ def save_report(report: str, output_path: str, reporter: Reporter) -> None:
     
     with open(output_path, 'w', encoding='utf-8') as f:
         f.write(report)
+
+
+def result_to_report_dict(result: BenchmarkResult) -> Dict[str, Any]:
+    """把评测结果转为统一报告模型中的条目。"""
+    strategies = getattr(result, "strategies", [])
+    if not isinstance(strategies, (list, tuple)):
+        strategies = []
+    metrics = getattr(result, "metrics", {})
+    if not isinstance(metrics, dict):
+        metrics = {}
+    resource_stats = getattr(result, "resource_stats", {})
+    if not isinstance(resource_stats, dict):
+        resource_stats = {}
+    config = getattr(result, "config", {})
+    if not isinstance(config, dict):
+        config = {}
+    route_type = getattr(result, "route_type", "") or config.get("route_type") or "standard"
+    route_type = route_type if isinstance(route_type, str) else str(route_type)
+    model_info = getattr(result, "model_info", None)
+    model_name = getattr(model_info, "name", "unknown") if model_info is not None else "unknown"
+    model_name = model_name if isinstance(model_name, str) else str(model_name)
+    return {
+        "scenario_name": result.scenario_name,
+        "model_name": model_name,
+        "route_type": route_type,
+        "strategies": [item if isinstance(item, str) else str(item) for item in strategies],
+        "metrics": metrics,
+        "resource_stats": resource_stats,
+        "config": config,
+        "timestamp": result.timestamp,
+    }
+
+
+def build_report_model(results: List[BenchmarkResult], task_name: str) -> Dict[str, Any]:
+    """构建统一报告模型。"""
+    report_results = [result_to_report_dict(result) for result in results]
+    route_groups: Dict[str, Dict[str, Any]] = {}
+
+    for item in report_results:
+        route = item["route_type"] or "standard"
+        group = route_groups.setdefault(
+            route,
+            {
+                "route": route,
+                "result_count": 0,
+                "models": set(),
+                "strategies": set(),
+            },
+        )
+        group["result_count"] += 1
+        group["models"].add(item["model_name"])
+        group["strategies"].update(item["strategies"])
+
+    route_comparison = [
+        {
+            "route": route,
+            "result_count": data["result_count"],
+            "models": sorted(data["models"]),
+            "strategies": sorted(data["strategies"]),
+        }
+        for route, data in sorted(route_groups.items())
+    ]
+
+    return {
+        "title": "Evaluation Report",
+        "task_name": task_name,
+        "generated_at": datetime.now().isoformat(),
+        "result_count": len(results),
+        "route_comparison": route_comparison,
+        "results": report_results,
+    }
+
+
+def render_report(
+    results: List[BenchmarkResult],
+    task_name: str,
+    output_format: str = "text",
+) -> tuple[str, Dict[str, Any], str]:
+    """渲染统一报告并返回报告体、报告模型和扩展名。"""
+    report_model = build_report_model(results, task_name=task_name)
+    if output_format == "json":
+        return JsonReportRenderer().render(report_model), report_model, ".json"
+    return MarkdownReportRenderer().render(report_model), report_model, ".md"

@@ -14,14 +14,19 @@
 """
 
 from .base import Strategy, InferenceContext, BaseStrategyConfig, NoOpStrategy
+from .base_unit import StrategyUnit, ValidationResult
 from .composer import StrategyComposer, register_builtin_strategies
+from .composition import StrategyCompositionEngine
 
 __all__ = [
     'Strategy',
     'InferenceContext',
     'BaseStrategyConfig',
     'NoOpStrategy',
+    'StrategyUnit',
+    'ValidationResult',
     'StrategyComposer',
+    'StrategyCompositionEngine',
     'register_builtin_strategies'
 ]
 

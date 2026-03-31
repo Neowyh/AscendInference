@@ -1,0 +1,23 @@
+{
+  "model": "models/yolov8n.om",
+  "image": "samples/remote_6k.jpg",
+  "strategies": [
+    "multithread",
+    "batch",
+    "pipeline"
+  ],
+  "routes": [
+    "tiled_route",
+    "large_input_route"
+  ],
+  "image_size_tiers": [
+    "6K"
+  ],
+  "iterations": 8,
+  "warmup": 2,
+  "threads": 8,
+  "batch_size": 8,
+  "device": 0,
+  "backend": "opencv",
+  "output": "reports/smoke/strategy.md"
+}

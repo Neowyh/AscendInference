@@ -15,6 +15,12 @@ from dataclasses import dataclass, field
 from typing import Dict, Any, Optional
 
 
+def _stringify_config_value(value: Any) -> Any:
+    if hasattr(value, "value"):
+        return value.value
+    return value
+
+
 @dataclass
 class MultithreadStrategyConfig:
     """多线程策略配置"""
@@ -308,6 +314,32 @@ class StrategyConfig:
         """
         return len(self.get_enabled_strategies()) > 0
 
+    def get_enabled_strategy_units(self) -> list:
+        """获取规范化后的已启用策略单元名称"""
+        unit_names = []
+        if self.multithread.enabled:
+            unit_names.append('multithread')
+        if self.batch.enabled:
+            unit_names.append('batch')
+        if self.pipeline.enabled:
+            unit_names.append('pipeline')
+        if self.memory_pool.enabled:
+            unit_names.append('memory_pool')
+        if self.high_res.enabled:
+            unit_names.append('high_res_tiling')
+        if self.async_io.enabled:
+            unit_names.append('async_io')
+        if self.cache.enabled:
+            unit_names.append('cache')
+        return unit_names
+
+    def validate_composition(self, route_type: Optional[str] = None):
+        """校验当前启用策略在指定路线下的组合是否合法"""
+        from src.strategies.composition import StrategyCompositionEngine
+
+        engine = StrategyCompositionEngine()
+        return engine.validate(self.get_enabled_strategy_units(), route_type=route_type)
+
 
 @dataclass
 class BenchmarkConfig:
@@ -364,4 +396,35 @@ class ModelInfoConfig:
             'collect_output_size': self.collect_output_size,
             'collect_params': self.collect_params,
             'collect_flops': self.collect_flops
+        }
+
+
+@dataclass
+class EvaluationConfig:
+    """评测任务配置"""
+    input_tier: str = "720p"
+    route_type: str = "tiled_route"
+    report_format: str = "text"
+    archive_enabled: bool = False
+
+    def __post_init__(self):
+        self.input_tier = _stringify_config_value(self.input_tier)
+        self.route_type = _stringify_config_value(self.route_type)
+        self.report_format = _stringify_config_value(self.report_format)
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'EvaluationConfig':
+        return cls(
+            input_tier=data.get('input_tier', '720p'),
+            route_type=data.get('route_type', 'tiled_route'),
+            report_format=data.get('report_format', 'text'),
+            archive_enabled=data.get('archive_enabled', False)
+        )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            'input_tier': self.input_tier,
+            'route_type': self.route_type,
+            'report_format': self.report_format,
+            'archive_enabled': self.archive_enabled
         }

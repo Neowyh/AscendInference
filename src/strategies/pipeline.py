@@ -86,7 +86,8 @@ class PipelineStrategy(Strategy):
         
         result = self._pipeline_instance.start(
             num_preprocess_threads=self.config.num_preprocess_threads,
-            num_infer_threads=self.config.num_infer_threads
+            num_infer_threads=self.config.num_infer_threads,
+            num_postprocess_threads=self.config.num_postprocess_threads,
         )
         
         if result:
