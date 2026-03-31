@@ -18,6 +18,7 @@
 import pytest
 import logging
 import os
+import queue
 import numpy as np
 from pathlib import Path
 from unittest.mock import Mock, patch, MagicMock
@@ -188,22 +189,29 @@ class TestInference:
     def test_init_no_acl(self):
         """测试无 ACL 库时的初始化"""
         inference = Inference()
-        result = inference.init()
-        assert result is False
+        from utils.exceptions import ACLError
+
+        with pytest.raises(ACLError):
+            inference.init()
     
     @patch('src.inference.HAS_ACL', False)
     def test_preprocess_no_acl(self):
         """测试无 ACL 库时的预处理"""
         inference = Inference()
-        result = inference.preprocess("test.jpg")
-        assert result is False
+        from utils.exceptions import ACLError
+
+        with patch('src.inference.base.validate_file_path'):
+            with pytest.raises(ACLError):
+                inference.preprocess("test.jpg")
     
     @patch('src.inference.HAS_ACL', False)
     def test_execute_no_acl(self):
         """测试无 ACL 库时的推理执行"""
         inference = Inference()
-        result = inference.execute()
-        assert result is False
+        from utils.exceptions import ACLError
+
+        with pytest.raises(ACLError):
+            inference.execute()
 
 
 @pytest.mark.skipif(not HAS_INFERENCE, reason="推理模块不可用")
@@ -227,9 +235,11 @@ class TestMultithreadInference:
     def test_task_queue(self):
         """测试任务队列"""
         mt_inference = MultithreadInference()
-        mt_inference.add_task("test.jpg", "pil")
-        assert not mt_inference.task_queue.empty()
-        task = mt_inference.task_queue.get()
+        mt_inference.task_queues = [queue.Queue()]
+        with patch('src.inference.multithread.validate_file_path'):
+            mt_inference.add_task("test.jpg", "pil")
+        assert mt_inference.task_queues
+        task = mt_inference.task_queues[0].get()
         assert task == ("test.jpg", "pil")
 
 
@@ -270,14 +280,16 @@ class TestInferenceAPI:
     @patch('src.api.HAS_INFERENCE', False)
     def test_inference_image_no_inference_module(self):
         """测试无推理模块时的异常"""
-        with pytest.raises(ImportError, match="推理模块不可用"):
-            InferenceAPI.inference_image('base', 'test.jpg')
+        with patch('src.api.validate_file_path'):
+            with pytest.raises(ImportError, match="推理模块不可用"):
+                InferenceAPI.inference_image('base', 'test.jpg')
     
     @patch('src.api.HAS_INFERENCE', False)
     def test_inference_batch_no_inference_module(self):
         """测试无推理模块时的批量推理异常"""
-        with pytest.raises(ImportError, match="推理模块不可用"):
-            InferenceAPI.inference_batch('base', ['test.jpg'])
+        with patch('src.api.validate_file_path'):
+            with pytest.raises(ImportError, match="推理模块不可用"):
+                InferenceAPI.inference_batch('base', ['test.jpg'])
     
     @patch('src.api.HAS_INFERENCE', True)
     @patch('src.api.Inference')
@@ -291,7 +303,8 @@ class TestInferenceAPI:
         
         from config import Config
         config = Config()
-        result = InferenceAPI.inference_image('base', 'test.jpg', config)
+        with patch('src.api.validate_file_path'):
+            result = InferenceAPI.inference_image('base', 'test.jpg', config)
         
         assert result is not None
         assert isinstance(result, np.ndarray)
@@ -311,7 +324,8 @@ class TestInferenceAPI:
         
         from config import Config
         config = Config()
-        result = InferenceAPI.inference_image('multithread', 'test.jpg', config)
+        with patch('src.api.validate_file_path'):
+            result = InferenceAPI.inference_image('multithread', 'test.jpg', config)
         
         assert result is not None
         mock_mt_inference.start.assert_called_once()
@@ -329,7 +343,8 @@ class TestInferenceAPI:
         
         from config import Config
         config = Config()
-        result = InferenceAPI.inference_image('high_res', 'test.jpg', config)
+        with patch('src.api.validate_file_path'):
+            result = InferenceAPI.inference_image('high_res', 'test.jpg', config)
         
         assert result is not None
         mock_hr_inference.process_image.assert_called_once()
@@ -347,7 +362,8 @@ class TestInferenceAPI:
         from config import Config
         config = Config()
         image_paths = ['test1.jpg', 'test2.jpg']
-        results = InferenceAPI.inference_batch('base', image_paths, config)
+        with patch('src.api.validate_file_path'):
+            results = InferenceAPI.inference_batch('base', image_paths, config)
         
         assert len(results) == 2
         assert mock_inference.init.called
@@ -372,7 +388,8 @@ class TestInferenceAPI:
         from config import Config
         config = Config()
         image_paths = ['test1.jpg', 'test2.jpg']
-        results = InferenceAPI.inference_batch('multithread', image_paths, config)
+        with patch('src.api.validate_file_path'):
+            results = InferenceAPI.inference_batch('multithread', image_paths, config)
         
         assert len(results) == 2
         mock_mt_inference.start.assert_called_once()
@@ -389,7 +406,8 @@ class TestInferenceAPI:
                 mock_inference.run_inference = Mock(return_value=np.array([1, 2, 3]))
                 mock_inference_class.return_value = mock_inference
                 
-                result = InferenceAPI.inference_image('base', 'test.jpg')
+                with patch('src.api.validate_file_path'):
+                    result = InferenceAPI.inference_image('base', 'test.jpg')
                 assert result is not None
 
 
@@ -474,22 +492,22 @@ class TestLoggerConfig:
         
         assert logger1 is logger2  # 应该返回同一个实例
     
-    def test_logger_output(self, caplog):
+    def test_logger_output(self, capsys):
         """测试日志输出"""
         from utils.logger import LoggerConfig
         
         logger = LoggerConfig.setup_logger("test_output", level="debug")
         
-        with caplog.at_level(logging.DEBUG):
-            logger.debug("Debug message")
-            logger.info("Info message")
-            logger.warning("Warning message")
-            logger.error("Error message")
-        
-        assert "Debug message" in caplog.text
-        assert "Info message" in caplog.text
-        assert "Warning message" in caplog.text
-        assert "Error message" in caplog.text
+        logger.debug("Debug message")
+        logger.info("Info message")
+        logger.warning("Warning message")
+        logger.error("Error message")
+
+        captured = capsys.readouterr().out
+        assert "Debug message" in captured
+        assert "Info message" in captured
+        assert "Warning message" in captured
+        assert "Error message" in captured
 
 
 class TestLoggerIntegration:
@@ -540,6 +558,51 @@ class TestLoggerIntegration:
         
         # 不同的日志记录器应该独立
         assert logger1 is not logger2
+
+
+def run_mock_standard_evaluation(tmp_path):
+    from benchmark.reporters import render_report
+    from benchmark.scenarios import BenchmarkResult, ModelInfo
+    from reporting.archive import archive_result
+
+    results = [
+        BenchmarkResult(
+            scenario_name="model_selection",
+            model_info=ModelInfo(name="yolov8n.om", resolution="640x640"),
+            metrics={
+                "execute": {"avg": 12.0},
+                "fps": {"pure": 83.3, "e2e": 55.5},
+                "iterations": {"test": 10},
+            },
+            config={"input_tier": "720p"},
+        )
+    ]
+
+    report, report_model, report_extension = render_report(
+        results,
+        task_name="model_selection",
+        output_format="text",
+    )
+    archived = archive_result(
+        tmp_path,
+        {"task_name": "model_selection", "route_type": "standard"},
+        report,
+        report_model,
+        report_extension=report_extension,
+    )
+
+    return {
+        "report_path": str(archived["report_path"]),
+        "archive_dir": str(archived["archive_dir"]),
+        "raw_results": len(report_model["results"]),
+    }
+
+
+def test_end_to_end_standard_evaluation_produces_archive_metadata(tmp_path):
+    result = run_mock_standard_evaluation(tmp_path)
+
+    assert result["report_path"].endswith(".md")
+    assert result["raw_results"] == 1
 
 
 # ============================================================================

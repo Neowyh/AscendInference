@@ -9,12 +9,15 @@
 import pytest
 from unittest.mock import Mock, patch, MagicMock
 import time
+import inspect
 
+from evaluations.tiers import InputTier
 from benchmark.scenarios import (
     BenchmarkScenario,
     BenchmarkResult,
     ModelInfo,
     ModelSelectionScenario,
+    RouteExperimentScenario,
     StrategyValidationScenario,
     ExtremePerformanceScenario
 )
@@ -86,6 +89,125 @@ class TestBenchmarkResult:
         assert result.config['iterations'] == 100
         assert result.resource_stats['cpu']['avg'] == 50.0
 
+    def test_split_metrics_preserve_legacy_metrics_view(self):
+        result = BenchmarkResult(
+            scenario_name="model_selection",
+            model_info=ModelInfo(name="test_model"),
+            model_metrics={
+                'preprocess': {'avg': 10.0},
+                'execute': {'avg': 12.0},
+                'fps': {'pure': 83.3}
+            },
+            system_metrics={
+                'fps': {'e2e': 55.5},
+                'iterations': {'test': 100},
+                'duration': {'test_time_ms': 1200.0}
+            },
+            resource_stats={'cpu': {'avg': 42.0}}
+        )
+
+        assert result.model_metrics['execute']['avg'] == 12.0
+        assert result.system_metrics['fps']['e2e'] == 55.5
+        assert result.metrics['fps']['pure'] == 83.3
+        assert result.metrics['fps']['e2e'] == 55.5
+        assert result.metrics['iterations']['test'] == 100
+
+    def test_reassigning_fields_updates_execution_record(self):
+        result = BenchmarkResult(
+            scenario_name="initial",
+            model_info=ModelInfo(name="test_model"),
+            metrics={"fps": {"pure": 100.0}},
+        )
+
+        result.scenario_name = "updated"
+        result.strategies = ["baseline"]
+
+        assert result.scenario_name == "updated"
+        assert result.execution_record.task_name == "updated"
+        assert result.strategies == ["baseline"]
+        assert result.execution_record.strategies == ["baseline"]
+
+    def test_execution_record_mutations_are_visible_through_compat_views(self):
+        result = BenchmarkResult(
+            scenario_name="initial",
+            model_info=ModelInfo(name="test_model", resolution="640x640"),
+            metrics={"execute": {"avg": 12.0}, "fps": {"pure": 100.0, "e2e": 80.0}},
+            config={"iterations": 10},
+            resource_stats={"cpu": {"avg": 20.0}},
+            timestamp=111.0,
+        )
+
+        result.execution_record.task_name = "updated"
+        result.execution_record.model_info.name = "updated_model"
+        result.execution_record.config["iterations"] = 20
+        result.execution_record.resource_stats["cpu"]["avg"] = 30.0
+        result.execution_record.timestamp = 222.0
+        result.execution_record.model_metrics["execute"]["avg"] = 15.0
+
+        assert result.scenario_name == "updated"
+        assert result.model_info.name == "updated_model"
+        assert result.config["iterations"] == 20
+        assert result.resource_stats["cpu"]["avg"] == 30.0
+        assert result.timestamp == 222.0
+        assert result.metrics["execute"]["avg"] == 15.0
+
+    def test_constructor_and_setter_snapshot_nested_inputs(self):
+        metrics = {
+            "execute": {"avg": 12.0},
+            "fps": {"pure": 100.0, "e2e": 80.0},
+        }
+        model_info = ModelInfo(name="test_model", resolution="640x640")
+        config = {"nested": {"enabled": True}}
+        resource_stats = {"cpu": {"avg": 20.0}}
+        strategies = ["baseline", "batch"]
+
+        result = BenchmarkResult(
+            scenario_name="initial",
+            model_info=model_info,
+            metrics=metrics,
+            strategies=strategies,
+            config=config,
+            resource_stats=resource_stats,
+        )
+
+        model_info.name = "mutated_model"
+        metrics["execute"]["avg"] = 99.0
+        config["nested"]["enabled"] = False
+        resource_stats["cpu"]["avg"] = 42.0
+        strategies.append("pipeline")
+
+        assert result.model_info.name == "test_model"
+        assert result.execution_record.model_name == "test_model"
+        assert result.metrics["execute"]["avg"] == 12.0
+        assert result.config["nested"]["enabled"] is True
+        assert result.resource_stats["cpu"]["avg"] == 20.0
+        assert result.strategies == ["baseline", "batch"]
+
+        setter_metrics = {
+            "execute": {"avg": 15.0},
+            "fps": {"pure": 88.0, "e2e": 77.0},
+        }
+        result.metrics = setter_metrics
+        setter_metrics["execute"]["avg"] = 123.0
+
+        assert result.metrics["execute"]["avg"] == 15.0
+
+    def test_module_exposes_single_benchmark_result_definition(self):
+        import benchmark.scenarios as scenarios_module
+
+        source = inspect.getsource(scenarios_module)
+        assert source.count("class BenchmarkResult") == 1
+
+    def test_route_type_is_preserved_on_execution_record(self):
+        result = BenchmarkResult(
+            scenario_name="route_experiment",
+            model_info=ModelInfo(name="test_model"),
+            metrics={"fps": {"pure": 100.0}},
+            route_type="tiled_route",
+        )
+
+        assert result.execution_record.route_type == "tiled_route"
+
 
 class TestModelSelectionScenario:
     """ModelSelectionScenario 类测试"""
@@ -149,6 +271,178 @@ class TestModelSelectionScenario:
         scenario._results = [BenchmarkResult(scenario_name="test")]
         assert len(scenario.get_results()) == 1
 
+    def test_model_selection_scenario_expands_across_standard_input_tiers(self):
+        scenario = ModelSelectionScenario()
+
+        matrix = scenario.build_matrix(["model.om"], ["image.jpg"])
+
+        assert len(matrix) == 3
+        assert [item["input_tier"] for item in matrix] == ["720p", "1080p", "4K"]
+
+    def test_model_selection_scenario_build_matrix_maps_runtime_resolution(self):
+        scenario = ModelSelectionScenario({"input_tiers": ["720p", "4K"]})
+
+        matrix = scenario.build_matrix(["model.om"], ["image.jpg"])
+
+        assert matrix == [
+            {
+                "model_path": "model.om",
+                "image_path": "image.jpg",
+                "input_tier": "720p",
+                "runtime_resolution": InputTier.TIER_720P.runtime_resolution,
+            },
+            {
+                "model_path": "model.om",
+                "image_path": "image.jpg",
+                "input_tier": "4K",
+                "runtime_resolution": InputTier.TIER_4K.runtime_resolution,
+            },
+        ]
+
+    def test_model_selection_scenario_run_calls_single_model_for_each_input_tier(self):
+        scenario = ModelSelectionScenario({"input_tiers": ["720p", "1080p"]})
+        observed_calls = []
+
+        def fake_run_single_model(model_path, image_path, input_tier=None, runtime_resolution=None):
+            observed_calls.append(
+                {
+                    "model_path": model_path,
+                    "image_path": image_path,
+                    "input_tier": input_tier,
+                    "runtime_resolution": runtime_resolution,
+                }
+            )
+            return BenchmarkResult(
+                scenario_name=scenario.name,
+                model_info=ModelInfo(name=model_path),
+                config={
+                    "input_tier": input_tier,
+                    "runtime_resolution": runtime_resolution,
+                },
+            )
+
+        with patch.object(scenario, "_run_single_model", side_effect=fake_run_single_model):
+            results = scenario.run(["model.om"], ["image.jpg"])
+
+        assert observed_calls == [
+            {
+                "model_path": "model.om",
+                "image_path": "image.jpg",
+                "input_tier": "720p",
+                "runtime_resolution": InputTier.TIER_720P.runtime_resolution,
+            },
+            {
+                "model_path": "model.om",
+                "image_path": "image.jpg",
+                "input_tier": "1080p",
+                "runtime_resolution": InputTier.TIER_1080P.runtime_resolution,
+            },
+        ]
+        assert [result.config["input_tier"] for result in results] == ["720p", "1080p"]
+
+    def test_model_selection_scenario_does_not_override_model_resolution_for_tier_metadata(self, monkeypatch):
+        scenario = ModelSelectionScenario()
+        captured = {}
+
+        class FakeInference:
+            def __init__(self, config):
+                captured["resolution"] = config.resolution
+                captured["input_tier"] = config.evaluation.input_tier
+                self.input_size = 640 * 640 * 3
+                self.output_size = 8400
+                self.input_width = 640
+                self.input_height = 640
+                self.resolution = config.resolution
+
+            def init(self):
+                return None
+
+            def run_inference(self, image_path, backend):
+                return None
+
+            def preprocess(self, image_path, backend):
+                return None
+
+            def execute(self):
+                return None
+
+            def get_result(self):
+                return None
+
+            def destroy(self):
+                return None
+
+        monkeypatch.setattr("src.inference.Inference", FakeInference)
+        monkeypatch.setattr("benchmark.scenarios.MetricsCollector", Mock(return_value=Mock(
+            finish_warmup=Mock(),
+            record=Mock(),
+            get_statistics=Mock(return_value={"fps": {"pure": 1.0, "e2e": 1.0}}),
+        )))
+        monkeypatch.setattr("benchmark.scenarios.SimpleResourceMonitor", Mock(return_value=Mock(
+            sample=Mock(),
+            get_stats=Mock(return_value={}),
+        )))
+
+        result = scenario._run_single_model(
+            "model.om",
+            "image.jpg",
+            input_tier="1080p",
+            runtime_resolution=InputTier.TIER_1080P.runtime_resolution,
+        )
+
+        assert captured["resolution"] == "640x640"
+        assert captured["input_tier"] == "1080p"
+        assert result.config["runtime_resolution"] == "640x640"
+        assert result.config["input_tier_runtime_resolution"] == InputTier.TIER_1080P.runtime_resolution
+
+    def test_model_selection_scenario_uses_configured_device_and_backend(self, monkeypatch):
+        scenario = ModelSelectionScenario({"device_id": 3, "backend": "opencv"})
+        captured = {}
+
+        class FakeInference:
+            def __init__(self, config):
+                captured["device_id"] = config.device_id
+                captured["backend"] = config.backend
+                self.input_size = 640 * 640 * 3
+                self.output_size = 8400
+                self.input_width = 640
+                self.input_height = 640
+                self.resolution = config.resolution
+
+            def init(self):
+                return None
+
+            def run_inference(self, image_path, backend):
+                return None
+
+            def preprocess(self, image_path, backend):
+                return None
+
+            def execute(self):
+                return None
+
+            def get_result(self):
+                return None
+
+            def destroy(self):
+                return None
+
+        monkeypatch.setattr("src.inference.Inference", FakeInference)
+        monkeypatch.setattr("benchmark.scenarios.MetricsCollector", Mock(return_value=Mock(
+            finish_warmup=Mock(),
+            record=Mock(),
+            get_statistics=Mock(return_value={"fps": {"pure": 1.0, "e2e": 1.0}}),
+        )))
+        monkeypatch.setattr("benchmark.scenarios.SimpleResourceMonitor", Mock(return_value=Mock(
+            sample=Mock(),
+            get_stats=Mock(return_value={}),
+        )))
+
+        scenario._run_single_model("model.om", "image.jpg")
+
+        assert captured["device_id"] == 3
+        assert captured["backend"] == "opencv"
+
 
 class TestStrategyValidationScenario:
     """StrategyValidationScenario 类测试"""
@@ -197,6 +491,280 @@ class TestStrategyValidationScenario:
         assert "策略验证评测报告" in report
         assert "基准性能" in report
         assert "策略对比" in report
+
+
+    def test_run_baseline_keeps_execution_record_in_sync(self):
+        scenario = StrategyValidationScenario()
+        baseline = BenchmarkResult(
+            scenario_name="model_selection",
+            model_info=ModelInfo(name="baseline_model"),
+            metrics={"fps": {"pure": 100.0, "e2e": 80.0}},
+            strategies=[],
+        )
+
+        with patch.object(ModelSelectionScenario, "run", return_value=[baseline]):
+            result = scenario._run_baseline("model.om", "image.jpg")
+
+        assert result is baseline
+        assert result.scenario_name == "baseline"
+        assert result.execution_record.task_name == "baseline"
+        assert result.strategies == ["baseline"]
+        assert result.execution_record.strategies == ["baseline"]
+
+    def test_strategy_validation_scenario_run_expands_across_routes(self):
+        scenario = StrategyValidationScenario(
+            {
+                "strategies": ["multithread"],
+                "routes": ["tiled_route", "large_input_route"],
+                "image_size_tiers": ["6K"],
+            }
+        )
+        baseline_calls = []
+        strategy_calls = []
+
+        def fake_baseline(model_path, image_path, route_type=None, image_size_tier=None):
+            baseline_calls.append(
+                {
+                    "model_path": model_path,
+                    "image_path": image_path,
+                    "route_type": route_type,
+                    "image_size_tier": image_size_tier,
+                }
+            )
+            return BenchmarkResult(
+                scenario_name="baseline",
+                model_info=ModelInfo(name=model_path),
+                metrics={"fps": {"pure": 100.0}},
+                route_type=route_type,
+            )
+
+        def fake_strategy(strategy_name, model_path, image_path, baseline_fps, route_type=None, image_size_tier=None):
+            strategy_calls.append(
+                {
+                    "strategy_name": strategy_name,
+                    "model_path": model_path,
+                    "image_path": image_path,
+                    "baseline_fps": baseline_fps,
+                    "route_type": route_type,
+                    "image_size_tier": image_size_tier,
+                }
+            )
+            return BenchmarkResult(
+                scenario_name="strategy_validation",
+                model_info=ModelInfo(name=model_path),
+                metrics={"fps": {"pure": baseline_fps * 2}},
+                strategies=[strategy_name],
+                route_type=route_type,
+            )
+
+        with patch.object(scenario, "_run_baseline", side_effect=fake_baseline), patch.object(
+            scenario, "_run_strategy", side_effect=fake_strategy
+        ):
+            results = scenario.run(["model.om"], ["image.jpg"])
+
+        assert baseline_calls == [
+            {
+                "model_path": "model.om",
+                "image_path": "image.jpg",
+                "route_type": "tiled_route",
+                "image_size_tier": "6K",
+            },
+            {
+                "model_path": "model.om",
+                "image_path": "image.jpg",
+                "route_type": "large_input_route",
+                "image_size_tier": "6K",
+            },
+        ]
+        assert [item["route_type"] for item in strategy_calls] == ["tiled_route", "large_input_route"]
+        assert [result.execution_record.route_type for result in results] == [
+            "tiled_route",
+            "tiled_route",
+            "large_input_route",
+            "large_input_route",
+        ]
+
+    def test_strategy_validation_scenario_defaults_remote_routes_from_image_size_tiers(self):
+        scenario = StrategyValidationScenario(
+            {
+                "strategies": ["multithread"],
+                "image_size_tiers": ["6K"],
+            }
+        )
+        baseline_calls = []
+
+        def fake_baseline(model_path, image_path, route_type=None, image_size_tier=None):
+            baseline_calls.append((route_type, image_size_tier))
+            return BenchmarkResult(
+                scenario_name="baseline",
+                model_info=ModelInfo(name=model_path),
+                metrics={"fps": {"pure": 100.0}},
+                route_type=route_type,
+            )
+
+        with patch.object(scenario, "_run_baseline", side_effect=fake_baseline), patch.object(
+            scenario, "_run_strategy", return_value=None
+        ):
+            scenario.run(["model.om"], ["image.jpg"])
+
+        assert baseline_calls == [
+            ("tiled_route", "6K"),
+            ("large_input_route", "6K"),
+        ]
+
+    def test_strategy_validation_scenario_defaults_large_input_route_to_6k(self):
+        scenario = StrategyValidationScenario(
+            {
+                "strategies": ["multithread"],
+                "routes": ["large_input_route"],
+            }
+        )
+        baseline_calls = []
+        strategy_calls = []
+
+        def fake_baseline(model_path, image_path, route_type=None, image_size_tier=None):
+            baseline_calls.append((route_type, image_size_tier))
+            return BenchmarkResult(
+                scenario_name="baseline",
+                model_info=ModelInfo(name=model_path),
+                metrics={"fps": {"pure": 100.0}},
+                route_type=route_type,
+            )
+
+        def fake_strategy(strategy_name, model_path, image_path, baseline_fps, route_type=None, image_size_tier=None):
+            strategy_calls.append((route_type, image_size_tier))
+            return BenchmarkResult(
+                scenario_name="strategy_validation",
+                model_info=ModelInfo(name=model_path),
+                metrics={"fps": {"pure": baseline_fps}},
+                strategies=[strategy_name],
+                route_type=route_type,
+            )
+
+        with patch.object(scenario, "_run_baseline", side_effect=fake_baseline), patch.object(
+            scenario, "_run_strategy", side_effect=fake_strategy
+        ):
+            scenario.run(["model.om"], ["image.jpg"])
+
+        assert baseline_calls == [("large_input_route", "6K")]
+        assert strategy_calls == [("large_input_route", "6K")]
+
+    def test_run_strategy_uses_configured_thread_count_for_multithread(self):
+        scenario = StrategyValidationScenario(
+            {
+                "threads": 8,
+            }
+        )
+
+        with patch.object(scenario, "_run_multithread_strategy", return_value="ok") as runner:
+            result = scenario._run_strategy(
+                "multithread",
+                "model.om",
+                "image.jpg",
+                baseline_fps=100.0,
+            )
+
+        assert result == "ok"
+        config = runner.call_args.args[0]
+        assert config.num_threads == 8
+        assert config.strategies.multithread.num_threads == 8
+
+    def test_run_strategy_uses_configured_batch_size_for_batch_strategy(self):
+        scenario = StrategyValidationScenario(
+            {
+                "batch_size": 16,
+            }
+        )
+
+        with patch.object(scenario, "_run_batch_strategy", return_value="ok") as runner:
+            result = scenario._run_strategy(
+                "batch",
+                "model.om",
+                "image.jpg",
+                baseline_fps=100.0,
+            )
+
+        assert result == "ok"
+        config = runner.call_args.args[0]
+        assert config.strategies.batch.batch_size == 16
+
+    def test_run_strategy_skips_invalid_high_res_combination_for_large_input_route(self):
+        scenario = StrategyValidationScenario()
+
+        with patch.object(scenario, "_run_high_res_strategy") as runner:
+            result = scenario._run_strategy(
+                "high_res",
+                "model.om",
+                "image.jpg",
+                baseline_fps=100.0,
+                route_type="large_input_route",
+                image_size_tier="6K",
+            )
+
+        assert result is None
+        runner.assert_not_called()
+
+
+class TestRouteExperimentScenario:
+    def test_remote_sensing_route_matrix_includes_tiled_and_large_input_routes(self):
+        scenario = RouteExperimentScenario({"image_size_tiers": ["6K"]})
+
+        matrix = scenario.build_route_matrix(["small.om", "6k.om"], ["image_6k.jpg"])
+
+        route_types = {item["route_type"] for item in matrix}
+        assert route_types == {"tiled_route", "large_input_route"}
+
+    def test_route_experiment_scenario_run_expands_across_routes(self):
+        scenario = RouteExperimentScenario({"image_size_tiers": ["6K"]})
+        observed_calls = []
+
+        def fake_run_single_model(
+            model_path,
+            image_path,
+            input_tier=None,
+            runtime_resolution=None,
+            route_type=None,
+            image_size_tier=None,
+        ):
+            observed_calls.append(
+                {
+                    "model_path": model_path,
+                    "image_path": image_path,
+                    "route_type": route_type,
+                    "runtime_resolution": runtime_resolution,
+                    "image_size_tier": image_size_tier,
+                }
+            )
+            return BenchmarkResult(
+                scenario_name=scenario.name,
+                model_info=ModelInfo(name=model_path),
+                config={
+                    "route_type": route_type,
+                    "image_size_tier": image_size_tier,
+                    "runtime_resolution": runtime_resolution,
+                },
+            )
+
+        with patch.object(scenario, "_run_single_model", side_effect=fake_run_single_model):
+            results = scenario.run(["small.om"], ["image_6k.jpg"])
+
+        assert observed_calls == [
+            {
+                "model_path": "small.om",
+                "image_path": "image_6k.jpg",
+                "route_type": "tiled_route",
+                "runtime_resolution": None,
+                "image_size_tier": "6K",
+            },
+            {
+                "model_path": "small.om",
+                "image_path": "image_6k.jpg",
+                "route_type": "large_input_route",
+                "runtime_resolution": "6k",
+                "image_size_tier": "6K",
+            },
+        ]
+        assert [result.config["route_type"] for result in results] == ["tiled_route", "large_input_route"]
 
 
 class TestExtremePerformanceScenario:

@@ -1,0 +1,10 @@
+{
+  "model_path": "models/yolov8s.om",
+  "resolution": "4k6k",
+  "evaluation": {
+    "input_tier": "4K",
+    "route_type": "large_input_route",
+    "report_format": "json",
+    "archive_enabled": true
+  }
+}

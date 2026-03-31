@@ -151,13 +151,17 @@ class Inference:
     
     def _init_components(self) -> None:
         """初始化预处理器、执行器和后处理器"""
+        max_buffers = 5
+        if self.config.is_strategy_enabled('memory_pool'):
+            max_buffers = self.config.strategies.memory_pool.max_buffers
+
         self.preprocessor = Preprocessor(
             input_width=self.input_width,
             input_height=self.input_height,
             input_size=self.input_size,
             batch_size=self.batch_size
         )
-        self.preprocessor.init_pool(max_buffers=5)
+        self.preprocessor.init_pool(max_buffers=max_buffers)
         
         self.executor = Executor(
             model_id=self.model_id,
@@ -343,11 +347,11 @@ class Inference:
             PreprocessError: 预处理失败
         """
         validate_image_backend(backend)
-        if isinstance(image_data, str):
-            validate_file_path(image_data, must_exist=True)
-
         if not HAS_ACL:
             raise ACLError("ACL 库不可用", error_code=2301)
+
+        if isinstance(image_data, str):
+            validate_file_path(image_data, must_exist=True)
 
         image = self.preprocessor.process_single(image_data, backend)
         self.preprocessor.copy_to_device(image, self.input_buffer, self.context)
@@ -364,6 +368,9 @@ class Inference:
         """
         validate_image_backend(backend)
         validate_positive_integer(len(image_data_list), "image_data_list length", min_val=1)
+
+        if not HAS_ACL:
+            raise ACLError("ACL 库不可用", error_code=2302)
         
         for i, image_data in enumerate(image_data_list):
             if isinstance(image_data, str):
@@ -429,6 +436,9 @@ class Inference:
             PostprocessError: 结果获取失败
         """
         validate_image_backend(backend)
+        if not HAS_ACL:
+            raise ACLError("ACL 库不可用", error_code=2402)
+
         if isinstance(image_data, str):
             validate_file_path(image_data, must_exist=True)
 
@@ -448,6 +458,10 @@ class Inference:
         """
         validate_image_backend(backend)
         validate_positive_integer(len(image_data_list), "image_data_list length", min_val=1)
+
+        if not HAS_ACL:
+            raise ACLError("ACL 库不可用", error_code=2403)
+
         for image_data in image_data_list:
             if isinstance(image_data, str):
                 validate_file_path(image_data, must_exist=True)

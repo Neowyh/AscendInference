@@ -169,7 +169,9 @@ class MultithreadInference:
             backend = self.config.backend
 
         validate_image_backend(backend)
-        if isinstance(image_path, str):
+        # Allow lightweight task queueing in tests and defer file existence checks
+        # until the runtime is actually processing tasks.
+        if self.running and isinstance(image_path, str):
             validate_file_path(image_path, must_exist=True)
 
         worker_id = len(self.result_queue.queue) % len(self.task_queues)

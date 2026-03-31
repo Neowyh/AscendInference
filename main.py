@@ -22,6 +22,8 @@ from typing import Dict, List, Tuple, Any, Optional
 
 from config import Config, SUPPORTED_RESOLUTIONS, MAX_AI_CORES
 from commands import cmd_infer, cmd_check, cmd_enhance, cmd_package, cmd_config
+from evaluations.routes import REMOTE_SENSING_ROUTES
+from evaluations.tiers import STANDARD_INPUT_TIERS
 
 __version__ = "1.1.0"
 
@@ -116,6 +118,15 @@ def main():
     model_bench_parser.add_argument('--device', type=int, default=0, help='设备ID')
     model_bench_parser.add_argument('--backend', choices=['pil', 'opencv'], default='pil', help='图像处理后端')
     model_bench_parser.add_argument('--enable-monitoring', action='store_true', help='启用资源监控')
+    model_bench_parser.add_argument(
+        '--input-tiers',
+        nargs='+',
+        choices=list(STANDARD_INPUT_TIERS),
+        default=list(STANDARD_INPUT_TIERS),
+        help='标准评测输入分档',
+    )
+    model_bench_parser.add_argument('--routes', nargs='+', choices=list(REMOTE_SENSING_ROUTES), help='遥感路线类型')
+    model_bench_parser.add_argument('--image-size-tiers', nargs='+', help='遥感大图分档，例如 6K')
     model_bench_parser.set_defaults(func=_cmd_model_bench)
     
     # ========== 策略验证评测命令 ==========
@@ -133,6 +144,8 @@ def main():
     strategy_bench_parser.add_argument('--output', '-o', help='报告输出路径')
     strategy_bench_parser.add_argument('--device', type=int, default=0, help='设备ID')
     strategy_bench_parser.add_argument('--backend', choices=['pil', 'opencv'], default='pil', help='图像处理后端')
+    strategy_bench_parser.add_argument('--routes', nargs='+', choices=list(REMOTE_SENSING_ROUTES), help='遥感路线类型')
+    strategy_bench_parser.add_argument('--image-size-tiers', nargs='+', help='遥感大图分档，例如 6K')
     strategy_bench_parser.set_defaults(func=_cmd_strategy_bench)
     
     # ========== 极限性能评测命令 ==========

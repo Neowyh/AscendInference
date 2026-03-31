@@ -19,6 +19,7 @@ from .scenarios import (
     BenchmarkResult,
     ModelInfo,
     ModelSelectionScenario,
+    RouteExperimentScenario,
     StrategyValidationScenario,
     ExtremePerformanceScenario
 )
@@ -37,6 +38,7 @@ __all__ = [
     'BenchmarkResult',
     'ModelInfo',
     'ModelSelectionScenario',
+    'RouteExperimentScenario',
     'StrategyValidationScenario',
     'ExtremePerformanceScenario',
     'Reporter',

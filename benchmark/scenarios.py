@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 """
 评测场景模块
 
@@ -11,11 +12,16 @@
 
 import os
 import time
+from copy import deepcopy
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Dict, List, Any, Optional, Union
 
 from config import Config
+from evaluations.routes import REMOTE_SENSING_ROUTES, RouteType
+from evaluations.tiers import InputTier, STANDARD_INPUT_TIERS
+from reporting.models import ExecutionRecord
+from src.strategies.composition import StrategyCompositionEngine
 from utils.metrics import MetricsCollector, TimingRecord
 from utils.monitor import ResourceMonitor, SimpleResourceMonitor
 from utils.exceptions import BenchmarkError, InferenceError
@@ -34,20 +40,6 @@ class ModelInfo:
     input_width: int = 0
     input_height: int = 0
     resolution: str = ""
-
-
-@dataclass
-class BenchmarkResult:
-    """评测结果"""
-    scenario_name: str = ""
-    model_info: ModelInfo = field(default_factory=ModelInfo)
-    metrics: Dict[str, Any] = field(default_factory=dict)
-    strategies: List[str] = field(default_factory=list)
-    config: Dict[str, Any] = field(default_factory=dict)
-    resource_stats: Dict[str, Any] = field(default_factory=dict)
-    timestamp: float = field(default_factory=time.time)
-
-
 class BenchmarkScenario(ABC):
     """评测场景基类"""
     
@@ -123,6 +115,29 @@ class ModelSelectionScenario(BenchmarkScenario):
         self.iterations = self.config.get('iterations', 100)
         self.warmup = self.config.get('warmup', 5)
         self.enable_monitoring = self.config.get('enable_monitoring', True)
+        self.device_id = self.config.get('device_id', 0)
+        self.backend = self.config.get('backend', 'pil')
+        self.input_tiers = [
+            InputTier.from_value(input_tier).value
+            for input_tier in self.config.get('input_tiers', STANDARD_INPUT_TIERS)
+        ]
+
+    def build_matrix(self, models: List[str], images: List[str]) -> List[Dict[str, str]]:
+        """按标准输入分档展开评测矩阵。"""
+        matrix: List[Dict[str, str]] = []
+        for model_path in models:
+            for image_path in images:
+                for input_tier in self.input_tiers:
+                    tier = InputTier.from_value(input_tier)
+                    matrix.append(
+                        {
+                            "model_path": model_path,
+                            "image_path": image_path,
+                            "input_tier": tier.value,
+                            "runtime_resolution": tier.runtime_resolution,
+                        }
+                    )
+        return matrix
     
     def run(self, models: List[str], images: List[str], **kwargs) -> List[BenchmarkResult]:
         """运行模型选型评测
@@ -137,15 +152,27 @@ class ModelSelectionScenario(BenchmarkScenario):
         """
         self._results = []
         
-        for model_path in models:
-            for image_path in images:
-                result = self._run_single_model(model_path, image_path)
-                if result:
-                    self._results.append(result)
+        for entry in self.build_matrix(models, images):
+            result = self._run_single_model(
+                entry["model_path"],
+                entry["image_path"],
+                input_tier=entry["input_tier"],
+                runtime_resolution=entry["runtime_resolution"],
+            )
+            if result:
+                self._results.append(result)
         
         return self._results
     
-    def _run_single_model(self, model_path: str, image_path: str) -> Optional[BenchmarkResult]:
+    def _run_single_model(
+        self,
+        model_path: str,
+        image_path: str,
+        input_tier: Optional[str] = None,
+        runtime_resolution: Optional[str] = None,
+        route_type: Optional[str] = None,
+        image_size_tier: Optional[str] = None,
+    ) -> Optional[BenchmarkResult]:
         """运行单个模型的评测
         
         Args:
@@ -157,7 +184,13 @@ class ModelSelectionScenario(BenchmarkScenario):
         """
         from src.inference import Inference
         
-        config = Config(model_path=model_path)
+        config = Config(model_path=model_path, device_id=self.device_id, backend=self.backend)
+        if input_tier:
+            config.evaluation.input_tier = input_tier
+        if route_type:
+            config.evaluation.route_type = route_type
+        if route_type == RouteType.LARGE_INPUT_ROUTE.value and runtime_resolution:
+            config.resolution = runtime_resolution
         config.strategies.multithread.enabled = False
         config.strategies.batch.enabled = False
         config.strategies.pipeline.enabled = False
@@ -210,11 +243,19 @@ class ModelSelectionScenario(BenchmarkScenario):
                 scenario_name=self.name,
                 model_info=model_info,
                 metrics=metrics,
+                route_type=route_type or "",
                 strategies=[],
                 config={
                     'iterations': self.iterations,
                     'warmup': self.warmup,
-                    'image': image_path
+                    'image': image_path,
+                    'input_tier': input_tier,
+                    'route_type': route_type,
+                    'image_size_tier': image_size_tier,
+                    'runtime_resolution': config.resolution,
+                    'input_tier_runtime_resolution': runtime_resolution,
+                    'device_id': config.device_id,
+                    'backend': config.backend,
                 },
                 resource_stats=resource_stats
             )
@@ -328,6 +369,273 @@ class ModelSelectionScenario(BenchmarkScenario):
         return "\n".join(lines)
 
 
+class RouteExperimentScenario(ModelSelectionScenario):
+    """遥感双路线对照评测场景。"""
+
+    name = "route_experiment"
+
+    def __init__(self, config: Optional[Dict] = None):
+        super().__init__(config)
+        self.routes = [
+            RouteType.from_value(route).value
+            for route in self.config.get('routes', REMOTE_SENSING_ROUTES)
+        ]
+        self.image_size_tiers = list(self.config.get('image_size_tiers', ['6K']))
+
+    def build_route_matrix(self, models: List[str], images: List[str]) -> List[Dict[str, Optional[str]]]:
+        matrix: List[Dict[str, Optional[str]]] = []
+        for model_path in models:
+            for image_path in images:
+                for image_size_tier in self.image_size_tiers:
+                    normalized_resolution = str(image_size_tier).lower()
+                    for route_type in self.routes:
+                        matrix.append(
+                            {
+                                "model_path": model_path,
+                                "image_path": image_path,
+                                "route_type": route_type,
+                                "image_size_tier": image_size_tier,
+                                "runtime_resolution": (
+                                    normalized_resolution
+                                    if route_type == RouteType.LARGE_INPUT_ROUTE.value
+                                    else None
+                                ),
+                            }
+                        )
+        return matrix
+
+    def run(self, models: List[str], images: List[str], **kwargs) -> List[BenchmarkResult]:
+        self._results = []
+        for entry in self.build_route_matrix(models, images):
+            result = self._run_single_model(
+                entry["model_path"],
+                entry["image_path"],
+                runtime_resolution=entry["runtime_resolution"],
+                route_type=entry["route_type"],
+                image_size_tier=entry["image_size_tier"],
+            )
+            if result:
+                self._results.append(result)
+        return self._results
+
+
+@dataclass(init=False)
+class BenchmarkResult:
+    """统一执行结果。
+
+    通过 execution_record 承载拆分后的指标，同时保留旧的 metrics 兼容视图。
+    """
+
+    scenario_name: str = ""
+    model_info: ModelInfo = field(default_factory=ModelInfo)
+    execution_record: ExecutionRecord = field(default_factory=ExecutionRecord)
+    strategies: List[str] = field(default_factory=list)
+    config: Dict[str, Any] = field(default_factory=dict)
+    resource_stats: Dict[str, Any] = field(default_factory=dict)
+    timestamp: float = field(default_factory=time.time)
+
+    def __init__(
+        self,
+        scenario_name: str = "",
+        model_info: Optional[ModelInfo] = None,
+        *,
+        route_type: str = "",
+        execution_record: Optional[ExecutionRecord] = None,
+        model_metrics: Optional[Dict[str, Any]] = None,
+        system_metrics: Optional[Dict[str, Any]] = None,
+        metrics: Optional[Dict[str, Any]] = None,
+        strategies: Optional[List[str]] = None,
+        config: Optional[Dict[str, Any]] = None,
+        resource_stats: Optional[Dict[str, Any]] = None,
+        timestamp: Optional[float] = None,
+    ) -> None:
+        model_info_obj = model_info
+
+        if execution_record is None:
+            model_info_obj = deepcopy(model_info_obj) if model_info_obj is not None else ModelInfo()
+            if model_metrics is not None or system_metrics is not None:
+                execution_record = ExecutionRecord(
+                    task_name=scenario_name,
+                    route_type=route_type,
+                    model_name=model_info_obj.name,
+                    model_info=model_info_obj,
+                    model_metrics=dict(model_metrics or {}),
+                    system_metrics=dict(system_metrics or {}),
+                    resource_stats=dict(resource_stats or {}),
+                    config=dict(config or {}),
+                    strategies=list(strategies or []),
+                    timestamp=time.time() if timestamp is None else timestamp,
+                )
+            else:
+                execution_record = ExecutionRecord.from_legacy_metrics(
+                    metrics,
+                    task_name=scenario_name,
+                    route_type=route_type,
+                    model_name=model_info_obj.name,
+                    model_info=model_info_obj,
+                    resource_stats=resource_stats,
+                    config=config,
+                    strategies=strategies,
+                    timestamp=timestamp,
+                )
+        else:
+            if model_info_obj is None:
+                model_info_obj = execution_record.model_info or ModelInfo(name=execution_record.model_name)
+            else:
+                model_info_obj = deepcopy(model_info_obj)
+                execution_record.model_info = model_info_obj
+            if execution_record.model_info is None:
+                execution_record.model_info = deepcopy(model_info_obj)
+            if not execution_record.model_name:
+                execution_record.model_name = getattr(execution_record.model_info, "name", model_info_obj.name)
+            if route_type and not execution_record.route_type:
+                execution_record.route_type = route_type
+
+        self.execution_record = execution_record
+        self.scenario_name = scenario_name or self.execution_record.task_name
+        self.model_info = model_info_obj or self.execution_record.model_info or ModelInfo()
+        self.route_type = route_type or self.execution_record.route_type
+        self.strategies = list(strategies if strategies is not None else self.execution_record.strategies)
+        self.config = dict(config if config is not None else self.execution_record.config)
+        self.resource_stats = dict(resource_stats if resource_stats is not None else self.execution_record.resource_stats)
+        self.timestamp = self.execution_record.timestamp if timestamp is None else timestamp
+
+    @property
+    def scenario_name(self) -> str:
+        execution_record = self.__dict__.get("execution_record")
+        return execution_record.task_name if execution_record else self.__dict__.get("_scenario_name", "")
+
+    @scenario_name.setter
+    def scenario_name(self, value: str) -> None:
+        execution_record = self.__dict__.get("execution_record")
+        if execution_record is not None:
+            execution_record.task_name = value
+        object.__setattr__(self, "_scenario_name", value)
+
+    @property
+    def model_info(self) -> ModelInfo:
+        execution_record = self.__dict__.get("execution_record")
+        if execution_record and execution_record.model_info is not None:
+            return execution_record.model_info
+        return self.__dict__.get("_model_info", ModelInfo())
+
+    @model_info.setter
+    def model_info(self, value: Optional[ModelInfo]) -> None:
+        model_info = deepcopy(value) if value is not None else ModelInfo()
+        execution_record = self.__dict__.get("execution_record")
+        if execution_record is not None:
+            execution_record.model_info = model_info
+            execution_record.model_name = getattr(model_info, "name", "")
+        object.__setattr__(self, "_model_info", model_info)
+
+    @property
+    def route_type(self) -> str:
+        execution_record = self.__dict__.get("execution_record")
+        return execution_record.route_type if execution_record else self.__dict__.get("_route_type", "")
+
+    @route_type.setter
+    def route_type(self, value: str) -> None:
+        execution_record = self.__dict__.get("execution_record")
+        if execution_record is not None:
+            execution_record.route_type = value
+        object.__setattr__(self, "_route_type", value)
+
+    @property
+    def model_metrics(self) -> Dict[str, Any]:
+        execution_record = self.__dict__.get("execution_record")
+        return execution_record.model_metrics if execution_record else {}
+
+    @property
+    def system_metrics(self) -> Dict[str, Any]:
+        execution_record = self.__dict__.get("execution_record")
+        return execution_record.system_metrics if execution_record else {}
+
+    @property
+    def metrics(self) -> Dict[str, Any]:
+        execution_record = self.__dict__.get("execution_record")
+        return execution_record.to_legacy_metrics() if execution_record else {}
+
+    @metrics.setter
+    def metrics(self, value: Dict[str, Any]) -> None:
+        value = dict(value or {})
+        execution_record = self.__dict__.get("execution_record")
+        if execution_record is None:
+            object.__setattr__(self, "_legacy_metrics", value)
+            return
+
+        synced_record = ExecutionRecord.from_legacy_metrics(
+            value,
+            task_name=self.scenario_name,
+            route_type=execution_record.route_type,
+            model_name=self.model_info.name,
+            model_info=self.model_info,
+            resource_stats=self.resource_stats,
+            config=self.config,
+            strategies=self.strategies,
+            timestamp=self.timestamp,
+        )
+        execution_record.model_metrics = synced_record.model_metrics
+        execution_record.system_metrics = synced_record.system_metrics
+        execution_record.model_info = synced_record.model_info
+        execution_record.model_name = getattr(synced_record.model_info, "name", self.model_info.name)
+        execution_record.resource_stats = synced_record.resource_stats
+        execution_record.config = synced_record.config
+        execution_record.strategies = synced_record.strategies
+        execution_record.task_name = synced_record.task_name
+        execution_record.timestamp = synced_record.timestamp
+
+    @property
+    def strategies(self) -> List[str]:
+        execution_record = self.__dict__.get("execution_record")
+        return execution_record.strategies if execution_record else self.__dict__.get("_strategies", [])
+
+    @strategies.setter
+    def strategies(self, value: Optional[List[str]]) -> None:
+        strategies = deepcopy(value or [])
+        execution_record = self.__dict__.get("execution_record")
+        if execution_record is not None:
+            execution_record.strategies = strategies
+        object.__setattr__(self, "_strategies", strategies)
+
+    @property
+    def config(self) -> Dict[str, Any]:
+        execution_record = self.__dict__.get("execution_record")
+        return execution_record.config if execution_record else self.__dict__.get("_config", {})
+
+    @config.setter
+    def config(self, value: Optional[Dict[str, Any]]) -> None:
+        config = deepcopy(value or {})
+        execution_record = self.__dict__.get("execution_record")
+        if execution_record is not None:
+            execution_record.config = config
+        object.__setattr__(self, "_config", config)
+
+    @property
+    def resource_stats(self) -> Dict[str, Any]:
+        execution_record = self.__dict__.get("execution_record")
+        return execution_record.resource_stats if execution_record else self.__dict__.get("_resource_stats", {})
+
+    @resource_stats.setter
+    def resource_stats(self, value: Optional[Dict[str, Any]]) -> None:
+        resource_stats = deepcopy(value or {})
+        execution_record = self.__dict__.get("execution_record")
+        if execution_record is not None:
+            execution_record.resource_stats = resource_stats
+        object.__setattr__(self, "_resource_stats", resource_stats)
+
+    @property
+    def timestamp(self) -> float:
+        execution_record = self.__dict__.get("execution_record")
+        return execution_record.timestamp if execution_record else self.__dict__.get("_timestamp", 0.0)
+
+    @timestamp.setter
+    def timestamp(self, value: float) -> None:
+        execution_record = self.__dict__.get("execution_record")
+        if execution_record is not None:
+            execution_record.timestamp = value
+        object.__setattr__(self, "_timestamp", value)
+
+
 class StrategyValidationScenario(BenchmarkScenario):
     """策略验证评测场景
     
@@ -355,6 +663,20 @@ class StrategyValidationScenario(BenchmarkScenario):
         ])
         self.iterations = self.config.get('iterations', 50)
         self.warmup = self.config.get('warmup', 3)
+        self.threads = self.config.get('threads', 4)
+        self.batch_size = self.config.get('batch_size', 4)
+        self.device_id = self.config.get('device_id', 0)
+        self.backend = self.config.get('backend', 'pil')
+        self.strategy_engine = StrategyCompositionEngine()
+        self.routes = list(self.config.get('routes', []))
+        self.image_size_tiers = list(self.config.get('image_size_tiers', []))
+        if self.image_size_tiers and not self.routes:
+            self.routes = list(REMOTE_SENSING_ROUTES)
+        if (
+            RouteType.LARGE_INPUT_ROUTE.value in self.routes
+            and not self.image_size_tiers
+        ):
+            self.image_size_tiers = ['6K']
     
     def run(self, models: List[str], images: List[str], **kwargs) -> List[BenchmarkResult]:
         """运行策略验证评测
@@ -374,21 +696,56 @@ class StrategyValidationScenario(BenchmarkScenario):
         
         if not model_path or not image_path:
             return self._results
-        
-        baseline_result = self._run_baseline(model_path, image_path)
-        if baseline_result:
-            self._results.append(baseline_result)
-        
-        baseline_fps = baseline_result.metrics.get('fps', {}).get('pure', 0) if baseline_result else 0
-        
-        for strategy_name in self.strategies_to_test:
-            strategy_result = self._run_strategy(strategy_name, model_path, image_path, baseline_fps)
-            if strategy_result:
-                self._results.append(strategy_result)
+
+        route_types = self.routes or [None]
+        image_size_tiers = self.image_size_tiers or [None]
+
+        for image_size_tier in image_size_tiers:
+            for route_type in route_types:
+                baseline_result = self._run_baseline(
+                    model_path,
+                    image_path,
+                    route_type=route_type,
+                    image_size_tier=image_size_tier,
+                )
+                if baseline_result:
+                    self._results.append(baseline_result)
+
+                baseline_fps = baseline_result.metrics.get('fps', {}).get('pure', 0) if baseline_result else 0
+
+                for strategy_name in self.strategies_to_test:
+                    validation = self.strategy_engine.validate(
+                        [strategy_name],
+                        route_type=route_type,
+                    )
+                    if not validation.is_valid:
+                        logger.warning(
+                            "跳过无效策略组合: route=%s strategy=%s errors=%s",
+                            route_type,
+                            strategy_name,
+                            "; ".join(validation.errors),
+                        )
+                        continue
+                    strategy_result = self._run_strategy(
+                        validation.normalized_strategies[0],
+                        model_path,
+                        image_path,
+                        baseline_fps,
+                        route_type=route_type,
+                        image_size_tier=image_size_tier,
+                    )
+                    if strategy_result:
+                        self._results.append(strategy_result)
         
         return self._results
     
-    def _run_baseline(self, model_path: str, image_path: str) -> Optional[BenchmarkResult]:
+    def _run_baseline(
+        self,
+        model_path: str,
+        image_path: str,
+        route_type: Optional[str] = None,
+        image_size_tier: Optional[str] = None,
+    ) -> Optional[BenchmarkResult]:
         """运行基准测试（无策略）
         
         Args:
@@ -398,11 +755,19 @@ class StrategyValidationScenario(BenchmarkScenario):
         Returns:
             BenchmarkResult: 基准结果
         """
-        scenario = ModelSelectionScenario({
+        scenario_cls = RouteExperimentScenario if route_type else ModelSelectionScenario
+        scenario_config = {
             'iterations': self.iterations,
             'warmup': self.warmup,
-            'enable_monitoring': False
-        })
+            'enable_monitoring': False,
+            'device_id': self.device_id,
+            'backend': self.backend,
+        }
+        if route_type:
+            scenario_config['routes'] = [route_type]
+            scenario_config['image_size_tiers'] = [image_size_tier] if image_size_tier else ['6K']
+
+        scenario = scenario_cls(scenario_config)
         
         results = scenario.run([model_path], [image_path])
         
@@ -414,8 +779,15 @@ class StrategyValidationScenario(BenchmarkScenario):
         
         return None
     
-    def _run_strategy(self, strategy_name: str, model_path: str, image_path: str, 
-                      baseline_fps: float) -> Optional[BenchmarkResult]:
+    def _run_strategy(
+        self,
+        strategy_name: str,
+        model_path: str,
+        image_path: str,
+        baseline_fps: float,
+        route_type: Optional[str] = None,
+        image_size_tier: Optional[str] = None,
+    ) -> Optional[BenchmarkResult]:
         """运行单个策略测试
         
         Args:
@@ -427,30 +799,98 @@ class StrategyValidationScenario(BenchmarkScenario):
         Returns:
             BenchmarkResult: 策略结果
         """
-        config = Config(model_path=model_path)
+        validation = self.strategy_engine.validate([strategy_name], route_type=route_type)
+        if not validation.is_valid:
+            logger.warning(
+                "策略 %s 与路线 %s 不兼容: %s",
+                strategy_name,
+                route_type,
+                "; ".join(validation.errors),
+            )
+            return None
+
+        strategy_name = validation.normalized_strategies[0]
+        config = Config(model_path=model_path, device_id=self.device_id, backend=self.backend)
+        if route_type:
+            config.evaluation.route_type = route_type
+        if route_type == RouteType.LARGE_INPUT_ROUTE.value and image_size_tier:
+            config.resolution = str(image_size_tier).lower()
         
         if strategy_name == 'multithread':
+            config.num_threads = self.threads
             config.strategies.multithread.enabled = True
-            config.strategies.multithread.num_threads = 4
-            theoretical_speedup = 4.0
+            config.strategies.multithread.num_threads = self.threads
+            theoretical_speedup = float(self.threads)
         elif strategy_name == 'batch':
             config.strategies.batch.enabled = True
-            config.strategies.batch.batch_size = 4
-            theoretical_speedup = 4.0
+            config.strategies.batch.batch_size = self.batch_size
+            theoretical_speedup = float(self.batch_size)
         elif strategy_name == 'pipeline':
             config.strategies.pipeline.enabled = True
-            theoretical_speedup = 3.0
+            config.strategies.pipeline.batch_size = self.batch_size
+            config.strategies.pipeline.num_preprocess_threads = self.threads
+            config.strategies.pipeline.num_infer_threads = 1
+            theoretical_speedup = float(max(1, self.threads + 1))
         elif strategy_name == 'memory_pool':
             config.strategies.memory_pool.enabled = True
+            config.strategies.memory_pool.max_buffers = max(5, self.batch_size)
             theoretical_speedup = 1.1
+        elif strategy_name == 'high_res_tiling':
+            config.num_threads = self.threads
+            config.strategies.high_res.enabled = True
+            config.tile_size = config.strategies.high_res.tile_size
+            config.overlap = config.strategies.high_res.overlap
+            theoretical_speedup = 1.0
         else:
             return None
         
         try:
             if strategy_name == 'multithread':
-                return self._run_multithread_strategy(config, image_path, baseline_fps, theoretical_speedup)
+                return self._run_multithread_strategy(
+                    config,
+                    image_path,
+                    baseline_fps,
+                    theoretical_speedup,
+                    route_type=route_type,
+                    image_size_tier=image_size_tier,
+                )
+            if strategy_name == 'batch':
+                return self._run_batch_strategy(
+                    config,
+                    image_path,
+                    baseline_fps,
+                    theoretical_speedup,
+                    route_type=route_type,
+                    image_size_tier=image_size_tier,
+                )
+            if strategy_name == 'pipeline':
+                return self._run_pipeline_strategy(
+                    config,
+                    image_path,
+                    baseline_fps,
+                    theoretical_speedup,
+                    route_type=route_type,
+                    image_size_tier=image_size_tier,
+                )
+            if strategy_name == 'high_res_tiling':
+                return self._run_high_res_strategy(
+                    config,
+                    image_path,
+                    baseline_fps,
+                    theoretical_speedup,
+                    route_type=route_type,
+                    image_size_tier=image_size_tier,
+                )
             else:
-                return self._run_simple_strategy(config, image_path, strategy_name, baseline_fps, theoretical_speedup)
+                return self._run_simple_strategy(
+                    config,
+                    image_path,
+                    strategy_name,
+                    baseline_fps,
+                    theoretical_speedup,
+                    route_type=route_type,
+                    image_size_tier=image_size_tier,
+                )
         except InferenceError as e:
             logger.error(f"策略 {strategy_name} 测试失败: {e}")
             raise BenchmarkError(
@@ -468,8 +908,16 @@ class StrategyValidationScenario(BenchmarkScenario):
                 details={"strategy": strategy_name, "model_path": model_path}
             ) from e
     
-    def _run_simple_strategy(self, config: Config, image_path: str, strategy_name: str,
-                             baseline_fps: float, theoretical_speedup: float) -> Optional[BenchmarkResult]:
+    def _run_simple_strategy(
+        self,
+        config: Config,
+        image_path: str,
+        strategy_name: str,
+        baseline_fps: float,
+        theoretical_speedup: float,
+        route_type: Optional[str] = None,
+        image_size_tier: Optional[str] = None,
+    ) -> Optional[BenchmarkResult]:
         """运行简单策略测试
         
         Args:
@@ -532,7 +980,16 @@ class StrategyValidationScenario(BenchmarkScenario):
                 model_info=ModelInfo(name=os.path.basename(config.model_path)),
                 metrics=metrics,
                 strategies=[strategy_name],
-                config={'iterations': self.iterations, 'warmup': self.warmup}
+                route_type=route_type or "",
+                config={
+                    'iterations': self.iterations,
+                    'warmup': self.warmup,
+                    'route_type': route_type,
+                    'image_size_tier': image_size_tier,
+                    'runtime_resolution': config.resolution,
+                    'device_id': config.device_id,
+                    'backend': config.backend,
+                }
             )
             
         except InferenceError:
@@ -547,9 +1004,262 @@ class StrategyValidationScenario(BenchmarkScenario):
             ) from e
         finally:
             inference.destroy()
+
+    def _run_batch_strategy(
+        self,
+        config: Config,
+        image_path: str,
+        baseline_fps: float,
+        theoretical_speedup: float,
+        route_type: Optional[str] = None,
+        image_size_tier: Optional[str] = None,
+    ) -> Optional[BenchmarkResult]:
+        """运行批处理策略测试"""
+        from src.inference import Inference
+
+        batch_size = config.strategies.batch.batch_size
+        inference = Inference(config, batch_size=batch_size)
+        batch_images = [image_path] * batch_size
+
+        try:
+            inference.init()
+
+            collector = MetricsCollector(auto_warmup=False)
+
+            for _ in range(self.warmup):
+                inference.run_inference_batch(batch_images, config.backend)
+            collector.finish_warmup()
+
+            for _ in range(self.iterations):
+                record = TimingRecord()
+
+                start = time.time()
+                inference.preprocess_batch(batch_images, config.backend)
+                record.preprocess_time = time.time() - start
+
+                start = time.time()
+                inference.execute()
+                record.execute_time = time.time() - start
+
+                start = time.time()
+                inference.get_result_batch()
+                record.postprocess_time = time.time() - start
+
+                record.calculate_total()
+                collector.record(record)
+
+            metrics = collector.get_statistics()
+            metrics['fps']['pure'] *= batch_size
+            metrics['fps']['e2e'] *= batch_size
+            strategy_fps = metrics.get('fps', {}).get('pure', 0)
+
+            speedup = strategy_fps / baseline_fps if baseline_fps > 0 else 1.0
+            parallel_efficiency = (speedup / theoretical_speedup) * 100 if theoretical_speedup > 0 else 0
+
+            metrics['strategy'] = {
+                'speedup': speedup,
+                'parallel_efficiency': parallel_efficiency,
+                'theoretical_speedup': theoretical_speedup,
+                'baseline_fps': baseline_fps,
+                'strategy_fps': strategy_fps,
+            }
+            metrics['batch'] = {
+                'batch_size': batch_size,
+                'effective_images': self.iterations * batch_size,
+            }
+
+            return BenchmarkResult(
+                scenario_name=self.name,
+                model_info=ModelInfo(name=os.path.basename(config.model_path)),
+                metrics=metrics,
+                strategies=['batch'],
+                route_type=route_type or "",
+                config={
+                    'iterations': self.iterations,
+                    'warmup': self.warmup,
+                    'batch_size': batch_size,
+                    'route_type': route_type,
+                    'image_size_tier': image_size_tier,
+                    'runtime_resolution': config.resolution,
+                    'device_id': config.device_id,
+                    'backend': config.backend,
+                }
+            )
+        finally:
+            inference.destroy()
+
+    def _run_pipeline_strategy(
+        self,
+        config: Config,
+        image_path: str,
+        baseline_fps: float,
+        theoretical_speedup: float,
+        route_type: Optional[str] = None,
+        image_size_tier: Optional[str] = None,
+    ) -> Optional[BenchmarkResult]:
+        """运行流水线策略测试"""
+        from src.inference import PipelineInference
+
+        batch_size = config.strategies.pipeline.batch_size
+        pipeline = PipelineInference(
+            config=config,
+            batch_size=batch_size,
+            queue_size=config.strategies.pipeline.queue_size,
+        )
+
+        try:
+            if not pipeline.start(
+                num_preprocess_threads=config.strategies.pipeline.num_preprocess_threads,
+                num_infer_threads=config.strategies.pipeline.num_infer_threads,
+                num_postprocess_threads=config.strategies.pipeline.num_postprocess_threads,
+            ):
+                return None
+
+            warmup_images = [image_path] * batch_size
+            for _ in range(self.warmup):
+                pipeline.submit(warmup_images)
+                pipeline.wait_for_completion()
+
+            start_time = time.time()
+            for _ in range(self.iterations):
+                pipeline.submit([image_path] * batch_size)
+            pipeline.wait_for_completion()
+            total_time = time.time() - start_time
+
+            completed_images = self.iterations * batch_size
+            strategy_fps = completed_images / total_time if total_time > 0 else 0
+            speedup = strategy_fps / baseline_fps if baseline_fps > 0 else 1.0
+            parallel_efficiency = (speedup / theoretical_speedup) * 100 if theoretical_speedup > 0 else 0
+
+            metrics = {
+                'fps': {'pure': strategy_fps, 'e2e': strategy_fps},
+                'strategy': {
+                    'speedup': speedup,
+                    'parallel_efficiency': parallel_efficiency,
+                    'theoretical_speedup': theoretical_speedup,
+                    'baseline_fps': baseline_fps,
+                    'strategy_fps': strategy_fps,
+                },
+                'pipeline': {
+                    'batch_size': batch_size,
+                    'num_preprocess_threads': config.strategies.pipeline.num_preprocess_threads,
+                    'num_infer_threads': config.strategies.pipeline.num_infer_threads,
+                    'num_postprocess_threads': config.strategies.pipeline.num_postprocess_threads,
+                    'queue_size': config.strategies.pipeline.queue_size,
+                },
+                'iterations': {
+                    'test': self.iterations,
+                    'effective_images': completed_images,
+                },
+                'duration': {
+                    'total_seconds': total_time,
+                },
+            }
+
+            return BenchmarkResult(
+                scenario_name=self.name,
+                model_info=ModelInfo(name=os.path.basename(config.model_path)),
+                metrics=metrics,
+                strategies=['pipeline'],
+                route_type=route_type or "",
+                config={
+                    'iterations': self.iterations,
+                    'warmup': self.warmup,
+                    'batch_size': batch_size,
+                    'num_preprocess_threads': config.strategies.pipeline.num_preprocess_threads,
+                    'num_infer_threads': config.strategies.pipeline.num_infer_threads,
+                    'num_postprocess_threads': config.strategies.pipeline.num_postprocess_threads,
+                    'route_type': route_type,
+                    'image_size_tier': image_size_tier,
+                    'runtime_resolution': config.resolution,
+                    'device_id': config.device_id,
+                    'backend': config.backend,
+                }
+            )
+        finally:
+            pipeline.stop()
+
+    def _run_high_res_strategy(
+        self,
+        config: Config,
+        image_path: str,
+        baseline_fps: float,
+        theoretical_speedup: float,
+        route_type: Optional[str] = None,
+        image_size_tier: Optional[str] = None,
+    ) -> Optional[BenchmarkResult]:
+        """运行高分辨率切片策略测试"""
+        from src.inference import HighResInference
+
+        collector = MetricsCollector(auto_warmup=False)
+        tile_counts = []
+
+        try:
+            for _ in range(self.warmup):
+                inference = HighResInference(config)
+                inference.process_image(image_path, config.backend)
+                inference.stop()
+            collector.finish_warmup()
+
+            for _ in range(self.iterations):
+                inference = HighResInference(config)
+                start = time.time()
+                merged_result = inference.process_image(image_path, config.backend) or {}
+                total_time = time.time() - start
+                inference.stop()
+
+                tile_counts.append(len(merged_result.get('sub_results', [])))
+                record = TimingRecord(total_time=total_time, execute_time=total_time)
+                collector.record(record)
+
+            metrics = collector.get_statistics()
+            strategy_fps = metrics.get('fps', {}).get('e2e', 0)
+            speedup = strategy_fps / baseline_fps if baseline_fps > 0 else 1.0
+            parallel_efficiency = (speedup / theoretical_speedup) * 100 if theoretical_speedup > 0 else 0
+
+            metrics['strategy'] = {
+                'speedup': speedup,
+                'parallel_efficiency': parallel_efficiency,
+                'theoretical_speedup': theoretical_speedup,
+                'baseline_fps': baseline_fps,
+                'strategy_fps': strategy_fps,
+            }
+            metrics['high_res'] = {
+                'tile_size': config.tile_size,
+                'overlap': config.overlap,
+                'avg_tiles': sum(tile_counts) / len(tile_counts) if tile_counts else 0,
+            }
+
+            return BenchmarkResult(
+                scenario_name=self.name,
+                model_info=ModelInfo(name=os.path.basename(config.model_path)),
+                metrics=metrics,
+                strategies=['high_res_tiling'],
+                route_type=route_type or "",
+                config={
+                    'iterations': self.iterations,
+                    'warmup': self.warmup,
+                    'tile_size': config.tile_size,
+                    'overlap': config.overlap,
+                    'route_type': route_type,
+                    'image_size_tier': image_size_tier,
+                    'runtime_resolution': config.resolution,
+                    'device_id': config.device_id,
+                    'backend': config.backend,
+                }
+            )
+        except InferenceError:
+            raise
     
-    def _run_multithread_strategy(self, config: Config, image_path: str,
-                                   baseline_fps: float, theoretical_speedup: float) -> Optional[BenchmarkResult]:
+    def _run_multithread_strategy(
+        self,
+        config: Config,
+        image_path: str,
+        baseline_fps: float,
+        theoretical_speedup: float,
+        route_type: Optional[str] = None,
+        image_size_tier: Optional[str] = None,
+    ) -> Optional[BenchmarkResult]:
         """运行多线程策略测试
         
         Args:
@@ -604,7 +1314,17 @@ class StrategyValidationScenario(BenchmarkScenario):
                 model_info=ModelInfo(name=os.path.basename(config.model_path)),
                 metrics=metrics,
                 strategies=['multithread'],
-                config={'iterations': self.iterations, 'warmup': self.warmup, 'num_threads': config.num_threads}
+                route_type=route_type or "",
+                config={
+                    'iterations': self.iterations,
+                    'warmup': self.warmup,
+                    'num_threads': config.num_threads,
+                    'route_type': route_type,
+                    'image_size_tier': image_size_tier,
+                    'runtime_resolution': config.resolution,
+                    'device_id': config.device_id,
+                    'backend': config.backend,
+                }
             )
             
         except InferenceError:

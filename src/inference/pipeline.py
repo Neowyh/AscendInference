@@ -52,16 +52,22 @@ class PipelineInference:
         self.running = False
         self.preprocess_threads: List[threading.Thread] = []
         self.infer_threads: List[threading.Thread] = []
-        self.postprocess_thread: Optional[threading.Thread] = None
+        self.postprocess_threads: List[threading.Thread] = []
 
         self.infer_instances: List[Inference] = []
 
-    def start(self, num_preprocess_threads: int = 2, num_infer_threads: int = 1) -> bool:
+    def start(
+        self,
+        num_preprocess_threads: int = 2,
+        num_infer_threads: int = 1,
+        num_postprocess_threads: int = 1,
+    ) -> bool:
         """启动流水线
 
         Args:
             num_preprocess_threads: 预处理线程数
             num_infer_threads: 推理线程数
+            num_postprocess_threads: 后处理线程数
 
         Returns:
             bool: 是否启动成功
@@ -98,12 +104,17 @@ class PipelineInference:
             self.infer_threads.append(t)
             logger.info(f"推理线程{i}已启动")
 
-        self.postprocess_thread = threading.Thread(target=self._postprocess_worker)
-        self.postprocess_thread.daemon = True
-        self.postprocess_thread.start()
-        logger.info("后处理线程已启动")
+        for i in range(num_postprocess_threads):
+            t = threading.Thread(target=self._postprocess_worker)
+            t.daemon = True
+            t.start()
+            self.postprocess_threads.append(t)
+            logger.info(f"后处理线程{i}已启动")
 
-        logger.info(f"流水线启动成功：预处理线程={num_preprocess_threads}, 推理线程={num_infer_threads}, 批大小={self.batch_size}")
+        logger.info(
+            f"流水线启动成功：预处理线程={num_preprocess_threads}, 推理线程={num_infer_threads}, "
+            f"后处理线程={num_postprocess_threads}, 批大小={self.batch_size}"
+        )
         return True
 
     def _preprocess_worker(self, worker_id: int) -> None:
@@ -217,18 +228,20 @@ class PipelineInference:
             self.preprocess_queue.put(None)
         for _ in range(len(self.infer_threads)):
             self.infer_queue.put(None)
-        self.postprocess_queue.put(None)
+        for _ in range(len(self.postprocess_threads)):
+            self.postprocess_queue.put(None)
 
         for t in self.preprocess_threads:
             t.join(timeout=3)
         for t in self.infer_threads:
             t.join(timeout=3)
-        if self.postprocess_thread:
-            self.postprocess_thread.join(timeout=3)
+        for t in self.postprocess_threads:
+            t.join(timeout=3)
 
         for infer in self.infer_instances:
             infer.destroy()
 
+        self.postprocess_threads.clear()
         logger.info("流水线已停止")
 
     def __del__(self) -> None:

@@ -1,0 +1,10 @@
+{
+  "model_path": "models/yolov8s.om",
+  "resolution": "640x640",
+  "evaluation": {
+    "input_tier": "720p",
+    "route_type": "tiled_route",
+    "report_format": "text",
+    "archive_enabled": false
+  }
+}

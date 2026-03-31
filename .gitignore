@@ -46,11 +46,14 @@ data/
 
 # Test
 test_config.py
+.pytest_cache/
+.tmp/
 
 # Documentation (optional)
 CODE_REVIEW.md
 BUGFIX.md
 *.md.bak
+.worktrees/
 
 # Repackaged archives
 *_repackaged.zip

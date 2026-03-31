@@ -201,7 +201,7 @@ class TestConfigValidator:
         result = ConfigValidator.validate(config)
         
         assert result.is_valid is False
-        assert any("不存在" in e for e in result.errors)
+        assert any("does not exist" in e for e in result.errors)
     
     def test_validator_invalid_device_id(self):
         """测试无效设备ID验证"""
@@ -212,7 +212,7 @@ class TestConfigValidator:
         result = ConfigValidator.validate(config)
         
         assert result.is_valid is False
-        assert any("设备ID" in e for e in result.errors)
+        assert any("device_id must be >= 0" in e for e in result.errors)
 
 
 class TestInferencePool:
@@ -568,6 +568,42 @@ class TestIntegration:
         assert isinstance(result.is_valid, bool)
         assert isinstance(result.errors, list)
         assert isinstance(result.warnings, list)
+
+    def test_route_report_rendering_flow(self, tmp_path):
+        from benchmark.reporters import build_report_model, render_report
+        from benchmark.scenarios import BenchmarkResult, ModelInfo
+        from reporting.archive import archive_result
+
+        results = [
+            BenchmarkResult(
+                scenario_name="route_experiment",
+                model_info=ModelInfo(name="small.om", resolution="640x640"),
+                metrics={"fps": {"pure": 30.0, "e2e": 20.0}},
+                config={"route_type": "tiled_route"},
+                route_type="tiled_route",
+            ),
+            BenchmarkResult(
+                scenario_name="route_experiment",
+                model_info=ModelInfo(name="6k.om", resolution="6k"),
+                metrics={"fps": {"pure": 15.0, "e2e": 10.0}},
+                config={"route_type": "large_input_route"},
+                route_type="large_input_route",
+            ),
+        ]
+
+        report_model = build_report_model(results, task_name="route_experiment")
+        report, _, report_extension = render_report(results, task_name="route_experiment", output_format="text")
+        archived = archive_result(
+            tmp_path,
+            {"task_name": "route_experiment", "route_type": "mixed"},
+            report,
+            report_model,
+            report_extension=report_extension,
+        )
+
+        assert len(report_model["route_comparison"]) == 2
+        assert "Route Comparison" in report
+        assert archived["report_path"].suffix == ".md"
 
 
 if __name__ == '__main__':

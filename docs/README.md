@@ -1,4 +1,4 @@
-# 昇腾推理工具文档中心
+# 昇腾端侧 YOLO 评测系统文档中心
 
 **版本**: 1.1.0  
 **更新日期**: 2026-03-28
@@ -6,6 +6,13 @@
 ---
 
 ## 文档导航
+
+### 评测主线速览
+
+- 标准评测：`720p / 1080p / 4K` 输入分档对比
+- 遥感评测：`tiled_route` 与 `large_input_route` 双路线对照
+- 策略评测：策略单元化、路线约束校验、真实执行器对比
+- 报告交付：Markdown/JSON 双格式渲染与统一归档
 
 ### 用户文档
 
@@ -18,7 +25,7 @@
 
 | 文档 | 说明 | 适用对象 |
 |------|------|---------|
-| [实现说明文档](implementation-guide.md) | 系统架构、核心组件、扩展开发 | 开发工程师 |
+| [实现说明文档](implementation-guide.md) | 双评测主线、策略组合、报告归档实现 | 开发工程师 |
 | [API参考文档](api_reference.py) | API接口定义和使用示例 | 开发工程师 |
 | [重构分析报告](refactoring-analysis.md) | 项目重构优化分析 | 架构师、开发者 |
 | [优化实施计划](optimization-plan.md) | 优化任务清单和实施步骤 | 开发团队 |
@@ -50,6 +57,7 @@
 
 1. 参考 [重构分析报告](refactoring-analysis.md) 了解优化方向
 2. 按照 [优化实施计划](optimization-plan.md) 执行优化任务
+3. 使用 `scripts/run_smoke_eval.py` 和 `config/evaluation/smoke_*.json` 进行 Ascend 设备 smoke check
 
 ---
 
@@ -58,8 +66,8 @@
 ```
 AscendInference/
 ├── benchmark/              # 评测模块
-│   ├── scenarios.py        # 三层评测场景
-│   └── reporters.py        # 报告生成器
+│   ├── scenarios.py        # 标准评测 / 遥感路线 / 策略验证场景
+│   └── reporters.py        # 统一报告模型与渲染入口
 ├── commands/               # CLI命令
 │   ├── model_bench.py      # 模型选型评测命令
 │   ├── strategy_bench.py   # 策略验证评测命令
@@ -86,10 +94,14 @@ AscendInference/
 │   │   ├── pipeline.py     # 流水线推理
 │   │   ├── high_res.py     # 高分辨率推理
 │   │   └── pool.py         # 推理池
-│   ├── strategies/         # 策略组件
+│   ├── strategies/         # 策略组件与组合规则
 │   │   ├── base.py         # 策略基类
-│   │   ├── composer.py     # 策略组合器
-│   │   └── adaptive_batch.py # 自适应批处理
+│   │   ├── composer.py     # 旧策略组合器
+│   │   ├── base_unit.py    # 策略单元定义
+│   │   └── composition.py  # 路线约束与执行器映射
+│   ├── reporting/          # 报告渲染与归档
+│   │   ├── renderers.py    # Markdown/JSON 渲染器
+│   │   └── archive.py      # 归档目录布局
 │   ├── preprocessing/      # 预处理模块
 │   │   └── parallel_preprocessor.py # 并行预处理器
 │   └── api.py              # API接口

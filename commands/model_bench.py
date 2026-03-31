@@ -12,10 +12,15 @@
 
 import os
 import argparse
+from pathlib import Path
 from typing import List, Optional
 
 from config import Config
-from benchmark import ModelSelectionScenario, BenchmarkResult
+from benchmark import ModelSelectionScenario, RouteExperimentScenario, BenchmarkResult
+from benchmark.reporters import render_report
+from evaluations.routes import REMOTE_SENSING_ROUTES
+from evaluations.tiers import STANDARD_INPUT_TIERS
+from reporting.archive import archive_result
 from utils.logger import LoggerConfig
 
 
@@ -54,6 +59,15 @@ def create_parser() -> argparse.ArgumentParser:
     parser.add_argument('--device', type=int, default=0, help='设备ID (默认: 0)')
     parser.add_argument('--backend', choices=['pil', 'opencv'], default='pil', help='图像处理后端')
     parser.add_argument('--enable-monitoring', action='store_true', help='启用资源监控')
+    parser.add_argument(
+        '--input-tiers',
+        nargs='+',
+        choices=list(STANDARD_INPUT_TIERS),
+        default=list(STANDARD_INPUT_TIERS),
+        help='标准评测输入分档',
+    )
+    parser.add_argument('--routes', nargs='+', choices=list(REMOTE_SENSING_ROUTES), help='遥感路线类型')
+    parser.add_argument('--image-size-tiers', nargs='+', help='遥感大图分档，例如 6K')
     
     return parser
 
@@ -105,11 +119,27 @@ def run_benchmark(args: argparse.Namespace) -> int:
     logger.info(f"迭代次数: {args.iterations}")
     logger.info(f"预热次数: {args.warmup}")
     
-    scenario = ModelSelectionScenario({
+    scenario_config = {
         'iterations': args.iterations,
         'warmup': args.warmup,
-        'enable_monitoring': args.enable_monitoring
-    })
+        'enable_monitoring': args.enable_monitoring,
+        'device_id': args.device,
+        'backend': args.backend,
+        'input_tiers': list(args.input_tiers),
+    }
+    scenario_cls = ModelSelectionScenario
+    routes = getattr(args, 'routes', None)
+    image_size_tiers = getattr(args, 'image_size_tiers', None)
+    if not isinstance(routes, (list, tuple)):
+        routes = None
+    if not isinstance(image_size_tiers, (list, tuple)):
+        image_size_tiers = None
+    if routes or image_size_tiers:
+        scenario_cls = RouteExperimentScenario
+        scenario_config['routes'] = list(routes or REMOTE_SENSING_ROUTES)
+        scenario_config['image_size_tiers'] = list(image_size_tiers or ['6K'])
+
+    scenario = scenario_cls(scenario_config)
     
     results = scenario.run(args.models, args.images)
     
@@ -117,12 +147,29 @@ def run_benchmark(args: argparse.Namespace) -> int:
         logger.error("评测失败，没有产生有效结果")
         return 1
     
-    report = scenario.generate_report(results)
+    report, report_model, report_extension = render_report(
+        results,
+        task_name=scenario.name,
+        output_format=args.format,
+    )
     
     if args.output:
-        with open(args.output, 'w', encoding='utf-8') as f:
+        output_path = Path(args.output)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(output_path, 'w', encoding='utf-8') as f:
             f.write(report)
-        logger.info(f"报告已保存到: {args.output}")
+        logger.info(f"报告已保存到: {output_path}")
+
+        route_items = report_model.get("route_comparison", [])
+        route_type = route_items[0]["route"] if len(route_items) == 1 else "mixed"
+        archived = archive_result(
+            output_path.parent / "archives",
+            {"task_name": scenario.name, "route_type": route_type},
+            report,
+            report_model,
+            report_extension=report_extension,
+        )
+        logger.info(f"归档已保存到: {archived['archive_dir']}")
     else:
         print(report)
     
