@@ -1,27 +1,27 @@
 # AGENTS.md
 
-This file provides repository-specific guidance to coding agents working in `AscendInference`.
+本文件为在 `AscendInference` 仓库内协作的编码代理提供项目级说明，重点帮助代理快速理解模块边界、验证方式、文档约定与常见风险点。
 
-## Project Overview
+## 项目概览
 
-AscendInference is an AscendCL-based inference and evaluation toolkit for Huawei Ascend devices. The repository now covers two closely related concerns:
+AscendInference 是一个面向华为昇腾设备的推理与评测工具集，覆盖两类核心能力：
 
-- model inference and optimization strategies
-- a three-track evaluation/reporting system for model selection, strategy validation, and extreme-performance testing
+- 推理执行与策略优化
+- 模型选型、策略验证、极限压测三层评测与报告归档
 
-The codebase is no longer just a single inference entrypoint. It now includes route/tier-aware evaluation flows, registry-style contracts, report normalization, and archive generation.
+当前仓库不再只是单一推理入口，而是由推理运行时、评测编排、注册表契约、报告输出和运维支撑共同组成。
 
-## Common Commands
+## 常用命令
 
-### Core Verification
+### 基础验证
 
 ```bash
-pytest tests -v
+pytest tests -q
 python main.py --help
 python main.py check
 ```
 
-### Inference
+### 推理命令
 
 ```bash
 python main.py infer test.jpg --model models/yolov8s.om
@@ -33,20 +33,15 @@ python main.py infer test.jpg --benchmark --iterations 100
 python main.py infer test.jpg --test-threads --thread-counts 1 2 4 8
 ```
 
-### Evaluation Commands
+### 评测命令
 
 ```bash
-# Model selection / standard evaluation
 python main.py model-bench models/yolov8n.om models/yolov8s.om --images test.jpg --input-tiers 720p 1080p
-
-# Strategy validation
 python main.py strategy-bench --model models/yolov8s.om --image test.jpg --strategies multithread batch pipeline
-
-# Extreme performance evaluation
 python main.py extreme-bench --model models/yolov8s.om --images test.jpg --duration 60
 ```
 
-### Smoke Command Builder
+### Smoke 命令构建与执行
 
 ```bash
 python scripts/run_smoke_eval.py --mode standard
@@ -55,7 +50,7 @@ python scripts/run_smoke_eval.py --mode strategy
 python scripts/run_smoke_eval.py --mode standard --run
 ```
 
-### Configuration Management
+### 配置管理
 
 ```bash
 python main.py config --show
@@ -63,101 +58,95 @@ python main.py config --validate
 python main.py config --generate config/my_config.json
 ```
 
-### Image Enhancement
+## 当前架构
 
-```bash
-python main.py enhance test.jpg --output ./enhanced --resolutions 640x640 1k 2k
-```
-
-## Current Architecture
-
-### Module Responsibilities
+### 模块职责
 
 - `main.py`
-  - unified CLI entry for inference, evaluation, environment check, enhancement, packaging, and config management
+  - 统一 CLI 入口，负责推理、评测、环境检查、增强、打包和配置管理
 - `commands/`
-  - CLI command handlers such as `infer`, `model_bench`, `strategy_bench`, `extreme_bench`, `config`, `check`
+  - 各命令处理器，例如 `infer`、`model_bench`、`strategy_bench`、`extreme_bench`、`config`、`check`
 - `src/inference/`
-  - core inference runtime split into focused modules such as `base.py`, `multithread.py`, `pipeline.py`, `high_res.py`, `preprocessor.py`, `executor.py`, `postprocessor.py`, `pool.py`
+  - 推理运行时核心，实现位于 `base.py`、`multithread.py`、`pipeline.py`、`high_res.py`、`preprocessor.py`、`executor.py`、`postprocessor.py`、`pool.py`
 - `src/strategies/`
-  - strategy abstractions, composition rules, and strategy-specific optimization units
+  - 策略抽象、策略组合与执行约束
 - `benchmark/`
-  - benchmark scenarios and report-building glue
+  - 评测场景装配与旧有 benchmark 兼容层
 - `evaluations/`
-  - route definitions and standard input tiers used by the newer evaluation flows
+  - 评测路线、输入分层、任务编排与评测主线定义
 - `registry/`
-  - registry-style data contracts for devices, models, and scenarios
+  - 设备、模型、场景等注册式数据契约
 - `reporting/`
-  - normalized report models, renderers, and archive helpers
+  - 报告标准模型、渲染器与归档布局
 - `config/`
-  - runtime config dataclasses, strategy config, evaluation config, and validation helpers
+  - 运行配置、策略配置、评测配置和校验逻辑
 - `utils/`
-  - ACL helpers, validators, exceptions, logger, metrics, monitor, profiler, memory pool
+  - ACL 帮助函数、参数校验、异常体系、日志、指标、监控和内存池
 - `tests/`
-  - unit and integration-style tests for inference, strategy, registry, reporting, config, and scenario layers
+  - 推理、策略、评测、注册表、报告、配置等测试
 
-### Inference Modes
+### 推理模式
 
-| Mode | Runtime | Use Case |
-|------|---------|----------|
-| `base` | `Inference` | single-image or simple batch inference |
-| `multithread` | `MultithreadInference` | higher throughput using multiple worker threads |
-| `high_res` | `HighResInference` | tiled handling for oversized images |
-| `pipeline` | `PipelineInference` | overlap preprocess / execute / postprocess for throughput |
+| 模式 | 运行时类 | 典型用途 |
+|------|----------|----------|
+| `base` | `Inference` | 单图或简单批量推理 |
+| `multithread` | `MultithreadInference` | 多线程提升吞吐 |
+| `high_res` | `HighResInference` | 大图分块推理 |
+| `pipeline` | `PipelineInference` | 预处理、执行、后处理流水并行 |
 
-### Evaluation Tracks
+### 三层评测体系
 
-| Track | Entry Command | Focus |
-|------|---------------|-------|
-| Standard model selection | `model-bench` | compare models under normalized input tiers |
-| Strategy validation | `strategy-bench` | compare optimization strategies and compositions |
-| Extreme performance | `extreme-bench` | throughput, resource pressure, and stress-style runs |
+| 评测层级 | 命令入口 | 目标 |
+|------|----------|------|
+| 模型选型评测 | `model-bench` | 比较不同模型在统一输入分层下的表现 |
+| 策略验证评测 | `strategy-bench` | 对比优化策略与组合效果 |
+| 极限性能评测 | `extreme-bench` | 持续压测、吞吐与资源监控 |
 
-## Configuration and Validation Rules
+## 配置与校验规则
 
-### Priority
+### 优先级
 
 ```text
-Command line arguments > JSON config file > dataclass defaults
+命令行参数 > JSON 配置文件 > dataclass 默认值
 ```
 
-### When Adding Config
+### 新增配置项时
 
-1. Add or update the dataclass in `config/config.py` or `config/strategy_config.py`.
-2. Add or update the corresponding JSON template in `config/`.
-3. Update validation behavior in `config/validator.py` or `utils/validators.py`.
-4. Update command help, README, and `AGENTS.md` if the setting changes user-facing behavior.
+1. 在 `config/config.py` 或 `config/strategy_config.py` 中更新 dataclass。
+2. 在 `config/` 下补充或调整 JSON 模板。
+3. 在 `config/validator.py` 或 `utils/validators.py` 中同步校验规则。
+4. 如果影响用户行为，需要同步更新 `README.md`、`docs/00-文档导航.md`、主题文档和 `AGENTS.md`。
 
-### Important Constraint
+### 分辨率词汇一致性
 
-The repository currently uses multiple resolution naming systems across older and newer code paths. When changing resolution-related behavior, confirm consistency across:
+仓库中同时存在旧版和新版分辨率表达方式。修改分辨率相关行为时，需要一起核对：
 
 - `config/config.py`
 - `config/validator.py`
 - `evaluations/tiers.py`
-- CLI help text
-- README / docs
+- CLI 帮助文本
+- `README.md` 与 `docs/`
 
-Do not introduce a new resolution vocabulary without reconciling all of the above.
+不要引入新的分辨率词汇而不完成全链路对齐。
 
-## ACL and Resource Management
+## ACL 与资源管理
 
-### Critical Rules
+### 关键约束
 
-1. Check `HAS_ACL` before assuming Ascend runtime availability.
-2. Use specific exception types such as `ACLError`, `ModelLoadError`, `DeviceError`, `InputValidationError`.
-3. In worker threads, set Ascend context correctly before ACL work.
-4. Always release ACL resources in `destroy()` paths.
-5. Prefer context-manager patterns when the API supports them.
+1. 任何昇腾执行假设都要先检查 `HAS_ACL`。
+2. 优先使用明确异常类型，例如 `ACLError`、`ModelLoadError`、`DeviceError`、`InputValidationError`。
+3. 工作线程执行 ACL 操作前要正确设置 Ascend 上下文。
+4. `destroy()` 路径必须释放资源。
+5. 优先使用上下文管理器封装生命周期。
 
-### Safe Usage Pattern
+### 推荐写法
 
 ```python
 with inference:
     result = inference.run_inference(image_path)
 ```
 
-or
+或
 
 ```python
 infer = Inference(config)
@@ -168,71 +157,67 @@ finally:
     infer.destroy()
 ```
 
-Avoid leaving inference objects initialized without cleanup.
+避免实例初始化后长期悬挂不释放。
 
-## Testing Notes
+## 测试注意事项
 
-### Current Environment Caveats
+### 当前环境特征
 
-- Some tests are sensitive to Windows temp-directory permissions.
-- In this environment, `pytest tests -q` has produced `PermissionError` failures under the system temp directory.
-- `.pytest_cache` writes may also warn if permissions are constrained.
+- Windows 临时目录权限可能导致 `PermissionError`。
+- `.pytest_cache` 在权限受限场景下可能出现写入告警。
+- ACL 缺失环境与真实代码回归要分开判断，不能混为一类失败。
 
-Do not classify every test failure as a code regression without separating:
+### 测试编写约定
 
-- environment noise
-- baseline defects
-- new feature defects
+- 涉及导入缺失或 ACL 不可用的测试，应显式 mock 对应条件。
+- 非路径校验测试不要依赖本地不存在的图片文件。
+- 日志测试要考虑全局 logger 复用和 handler 状态残留。
 
-### Mocking Expectations
+### 完成前验证
 
-- Tests that target import or ACL-unavailable behavior should mock those conditions directly.
-- Tests should not rely on missing local image files unless the test is explicitly about path validation.
-- Logger tests should account for global logger reuse and handler state.
-
-### Verification Bias
-
-Before calling work complete, prefer:
+优先执行：
 
 ```bash
 pytest tests -q
 ```
 
-and then classify failures carefully rather than summarizing them as a single bucket.
+然后把失败按以下三类拆开判断：
 
-## Branch Review and Merge Guidance
+- 环境噪音
+- 基线缺陷
+- 新改动缺陷
 
-### Branch Roles Observed Locally
+## 分支审查与合并规范
+
+### 已观察到的分支角色
 
 - `master`
-  - intended final merge target
+  - 最终主线
 - `codex/worktree-bootstrap`
-  - minimal housekeeping branch for `.worktrees/` ignore behavior
+  - `.worktrees/` 忽略规则的整理分支
 - `codex/ascend-yolo-system`
-  - major feature branch for evaluation, registry, and reporting expansion
+  - 评测、注册表与报告体系扩展分支
 
-### Merge Strategy
+### 合并策略
 
-1. Preserve the `.worktrees/` ignore rule, but do not keep `codex/worktree-bootstrap` as a long-lived branch.
-2. Stabilize baseline tests on `master` before merging the major feature branch.
-3. Merge `codex/ascend-yolo-system` only after:
-   - baseline stabilization
-   - CLI/doc synchronization
-   - acceptance coverage for the new evaluation/reporting paths
+1. 保留 `.worktrees/` 忽略规则，但不要长期保留仅做整理用途的分支。
+2. 先稳定 `master` 基线，再合并大功能分支。
+3. 合并评测系统前，必须确认：
+   - 基线测试已分类或稳定
+   - CLI 与文档已同步
+   - 新评测链路存在明确验收矩阵
 
-### During Review
+### 审查重点
 
-Prioritize:
+- 正确性与回归风险
+- 接口一致性
+- 测试可信度
+- 文档漂移
+- 数据模型边界是否清晰
 
-- correctness and regression risk
-- interface consistency
-- test trustworthiness
-- documentation drift
-- maintainability of new data-model boundaries
+## 日志规范提醒
 
-## Logging Guidance
-
-Use `LoggerConfig` for repository-standard logging.
+仓库内统一使用 `LoggerConfig` 建立日志器：
 
 ```python
 from utils.logger import LoggerConfig
@@ -255,28 +240,30 @@ LoggerConfig.log_with_context(
 )
 ```
 
-Be aware that logger reuse is currently a maintenance hotspot. If you change logger setup semantics, update tests accordingly.
+日志器复用与 `propagate` 行为仍是维护热点；如果修改日志初始化语义，需要同步更新测试。
 
-## Documentation Sync Rules
+## 文档同步规则
 
-Whenever you add or change:
+当你新增或修改以下内容时，必须同时更新文档：
 
-- a CLI command
-- a config field
-- an evaluation tier or route
-- a report/archive behavior
-- a major module boundary
+- CLI 命令
+- 配置字段
+- 评测分层或路线
+- 报告与归档行为
+- 主要模块边界
 
-you must update the relevant documentation set together:
+最少需要同步：
 
-1. `README.md` for user-facing entrypoints
-2. `docs/implementation-guide.md` for architecture details
-3. `docs/README.md` if navigation changes
-4. `AGENTS.md` for repository-specific contributor guidance
+1. `README.md`
+2. `docs/00-文档导航.md`
+3. 对应主题文档
+4. `AGENTS.md`
 
-## Constraints
+历史过程产物统一归档到 `docs/99-历史记录/`，不进入主导航。
 
-- Ascend hardware and ACL libraries are required for real device execution.
-- `.om` is the expected model format.
-- Some evaluation features are best-effort in non-Ascend environments and should be treated as contract/documentation review targets unless hardware is available.
-- Path validation is intentionally strict; be careful when changing error-precedence behavior around validation versus ACL/import checks.
+## 仓库约束
+
+- 真实设备执行依赖昇腾硬件与 ACL 库。
+- 模型格式以 `.om` 为主。
+- 非昇腾环境下，部分评测能力更适合作为契约和文档检查对象，而非真实硬件验收。
+- 路径校验是刻意保持严格的；调整导入、ACL 与路径校验的先后顺序时，要同步考虑错误优先级语义。
