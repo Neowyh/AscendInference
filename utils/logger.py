@@ -112,12 +112,14 @@ class LoggerConfig:
             配置好的日志记录器
         """
         logger = logging.getLogger(name)
-
-        if logger.handlers:
-            return logger
-
         logger.setLevel(getattr(logging, level.upper(), logging.INFO))
         logger.propagate = False
+
+        for handler in list(logger.handlers):
+            logger.removeHandler(handler)
+            handler.close()
+        for log_filter in list(logger.filters):
+            logger.removeFilter(log_filter)
 
         # 选择格式化器
         if format_type == 'json':

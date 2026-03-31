@@ -46,6 +46,8 @@ data/
 
 # Test
 test_config.py
+.pytest_cache/
+.tmp/
 
 # Documentation (optional)
 CODE_REVIEW.md

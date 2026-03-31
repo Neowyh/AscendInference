@@ -51,10 +51,11 @@ class InferenceAPI:
         """
         # 验证参数
         validate_inference_mode(mode)
-        validate_file_path(image_path, must_exist=True)
 
         if not HAS_INFERENCE:
             raise ImportError("推理模块不可用")
+
+        validate_file_path(image_path, must_exist=True)
 
         config = config or Config()
         
@@ -109,11 +110,12 @@ class InferenceAPI:
         validate_inference_mode(mode)
         from utils.validators import validate_positive_integer
         validate_positive_integer(len(image_paths), "image_paths length", min_val=1)
-        for image_path in image_paths:
-            validate_file_path(image_path, must_exist=True)
 
         if not HAS_INFERENCE:
             raise ImportError("推理模块不可用")
+
+        for image_path in image_paths:
+            validate_file_path(image_path, must_exist=True)
 
         config = config or Config()
         

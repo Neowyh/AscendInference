@@ -347,11 +347,11 @@ class Inference:
             PreprocessError: 预处理失败
         """
         validate_image_backend(backend)
-        if isinstance(image_data, str):
-            validate_file_path(image_data, must_exist=True)
-
         if not HAS_ACL:
             raise ACLError("ACL 库不可用", error_code=2301)
+
+        if isinstance(image_data, str):
+            validate_file_path(image_data, must_exist=True)
 
         image = self.preprocessor.process_single(image_data, backend)
         self.preprocessor.copy_to_device(image, self.input_buffer, self.context)
@@ -368,6 +368,9 @@ class Inference:
         """
         validate_image_backend(backend)
         validate_positive_integer(len(image_data_list), "image_data_list length", min_val=1)
+
+        if not HAS_ACL:
+            raise ACLError("ACL 库不可用", error_code=2302)
         
         for i, image_data in enumerate(image_data_list):
             if isinstance(image_data, str):
@@ -433,6 +436,9 @@ class Inference:
             PostprocessError: 结果获取失败
         """
         validate_image_backend(backend)
+        if not HAS_ACL:
+            raise ACLError("ACL 库不可用", error_code=2402)
+
         if isinstance(image_data, str):
             validate_file_path(image_data, must_exist=True)
 
@@ -452,6 +458,10 @@ class Inference:
         """
         validate_image_backend(backend)
         validate_positive_integer(len(image_data_list), "image_data_list length", min_val=1)
+
+        if not HAS_ACL:
+            raise ACLError("ACL 库不可用", error_code=2403)
+
         for image_data in image_data_list:
             if isinstance(image_data, str):
                 validate_file_path(image_data, must_exist=True)
